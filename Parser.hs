@@ -105,25 +105,25 @@ addExprP = AddExpr <$> ((,) <$> mulExprP <*> many rest)
 exprP = addExprP
 
 
-evalExpr :: Expr -> Int
-evalAddExpr :: AddExpr -> Int
-evalMulExpr :: MulExpr -> Int
-evalPrimaryExpr :: PrimaryExpr -> Int
+evalExpr :: Expr -> Float
+evalAddExpr :: AddExpr -> Float
+evalMulExpr :: MulExpr -> Float
+evalPrimaryExpr :: PrimaryExpr -> Float
 
 evalExpr = evalAddExpr
-evalAddExpr (AddExpr (e, es)) = evalList (evalMulExpr e) es
+evalAddExpr (AddExpr (e, es)) = evalList (evalMulExpr       e)  es
     where
         evalList acc [] = acc
-        evalList acc ((PlusOp, e):es) = evalList (acc + evalMulExpr e) es
-        evalList acc ((MinusOp, e):es) = evalList (acc - evalMulExpr e) es 
+        evalList acc ((PlusOp, e):es)   = evalList (acc + evalMulExpr e) es
+        evalList acc ((MinusOp, e):es)  = evalList (acc - evalMulExpr e) es 
 
-evalMulExpr (MulExpr (e, es)) = evalList (evalPrimaryExpr e) es
+evalMulExpr (MulExpr (e, es)) = evalList (evalPrimaryExpr   e)  es
     where
         evalList acc [] = acc
-        evalList acc ((MulOp, e):es) = evalList (acc * evalPrimaryExpr e) es
-        evalList acc ((DivOp, e):es) = evalList (acc `div` evalPrimaryExpr e) es 
-evalPrimaryExpr (IntExpr i) = i
-evalPrimaryExpr (ParenExpr e) = evalExpr e
+        evalList acc ((MulOp, e):es)    = evalList (acc * evalPrimaryExpr e) es
+        evalList acc ((DivOp, e):es)    = evalList (acc / evalPrimaryExpr e) es 
+evalPrimaryExpr (IntExpr i)     = fromIntegral i
+evalPrimaryExpr (ParenExpr e)   = evalExpr e
 
 
 
