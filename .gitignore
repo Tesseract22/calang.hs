@@ -2,4 +2,5 @@ Parser
 Parser.hi
 test
 cache
-*.asm
+asm
+bin
