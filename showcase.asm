@@ -5,56 +5,24 @@ extern printf
 extern exit             
 global         _start   
 _start:                 
+    push rbp            
+    mov rbp, rsp        
                         
-	push 1
-	push 2
+	push 5
 	push 10
-	pop rax
-	pop rcx
-	imul rcx, rax
-	push rcx
-	pop rax
-	pop rcx
-	add rcx, rax
-	push rcx
-	push 5
-	push 2
-	pop rax
-	pop rcx
-	sub rcx, rax
-	push rcx
-	pop rax
-	pop rcx
-	add rcx, rax
-	push rcx
+	push 0
+	push qword [rbp - 8]
     pop rsi
     mov rdi, format
     mov rax, 0
     call printf
-	push 5
-	push 9
-	push 2
-	push 12
-	push 3
-	pop rax
-	pop rcx
-	imul rcx, rax
-	push rcx
-	pop rax
-	pop rcx
-	add rcx, rax
-	push rcx
-	pop rax
-	pop rcx
-	imul rcx, rax
-	push rcx
-	pop rax
-	pop rcx
-	sub rcx, rax
-	push rcx
+	push qword [rbp - 8]
     pop rsi
     mov rdi, format
     mov rax, 0
     call printf
+	pop rax
+	pop rax
+	pop rbp
 	mov rdi, 0
 	call exit
