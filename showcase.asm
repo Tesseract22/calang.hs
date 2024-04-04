@@ -12,11 +12,56 @@ _start:
 	push 10
 	push 0
 	push qword [rbp - 8]
+	push qword [rbp - 8]
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	push 2
+	push qword [rbp - 8]
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	push qword [rbp - 16]
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	pop rax
+	pop rcx
+	add rcx, rax
+	push rcx
+	push qword [rbp - 16]
+	push qword [rbp - 16]
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	pop rax
+	pop rcx
+	add rcx, rax
+	push rcx
     pop rsi
     mov rdi, format
     mov rax, 0
     call printf
 	push qword [rbp - 8]
+	push qword [rbp - 16]
+	pop rax
+	pop rcx
+	add rcx, rax
+	push rcx
+	push qword [rbp - 8]
+	push qword [rbp - 16]
+	pop rax
+	pop rcx
+	add rcx, rax
+	push rcx
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
     pop rsi
     mov rdi, format
     mov rax, 0
