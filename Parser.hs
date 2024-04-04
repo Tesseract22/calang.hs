@@ -197,7 +197,6 @@ compileStas :: [Statement] -> String
 compileStas stas =  
     "section        .data          \n\     
 \    format        db \"The result is: %i!\", 0xa, 0x0   \n\
-\    result     dq 0     \n\
 \section        .text    \n\
 \extern printf           \n\
 \extern exit             \n\
@@ -211,8 +210,7 @@ compileStas stas =
         compileSta :: Statement -> String
         compileSta (VarDefSta _ _) = undefined
         compileSta (EvalSta e) = compileExpr e Data.Map.empty ++ 
-            "    pop qword [result]\n\
-\    mov rsi, [result]\n\
+            "    pop rsi\n\
 \    mov rdi, format\n\
 \    mov rax, 0\n\
 \    call printf\n"

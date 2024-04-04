@@ -1,6 +1,5 @@
 section        .data          
     format        db "The result is: %i!", 0xa, 0x0   
-    result     dq 0     
 section        .text    
 extern printf           
 extern exit             
@@ -28,8 +27,7 @@ _start:
 	pop rcx
 	add rcx, rax
 	push rcx
-    pop qword [result]
-    mov rsi, [result]
+    pop rsi
     mov rdi, format
     mov rax, 0
     call printf
