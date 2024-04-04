@@ -20,7 +20,7 @@ bin/main: bin/Parser main.cal bin_dir asm_dir cache_dir
 bin/test: ${ASM_DIR}/test.asm bin_dir cache asm_dir
 	nasm $< ${NASM_FLAGS} -o ${CACHE_DIR}/test.o 
 	ld ${LD_FLAGS} -lc ${CACHE_DIR}/test.o -o $@
-	./$@
+	# ./$@
 
 Parser: bin/Parser
 main: bin/main

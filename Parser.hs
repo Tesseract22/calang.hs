@@ -3,7 +3,7 @@ import Distribution.Fields (ParseResult)
 import Control.Applicative (Alternative, empty, (<|>), many, some)
 import Control.Monad (void)
 import Data.Char (isNumber, isAlpha, isAlphaNum)
-import Data.Map (Map, insert, lookup, empty)
+import Data.Map (Map, insert, lookup, empty, size, singleton)
 import System.Environment (getArgs)
 import GHC.IO.FD (openFile)
 import qualified Control.Applicative as Applicative
@@ -169,36 +169,49 @@ runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas
 
 
 
-
+type Stack = Map String Int
 compileComputationOnStack :: String -> String 
 compileComputationOnStack inst = "\tpop rax\n" ++ "\tpop rcx\n" ++ "\t" ++ inst ++ " rcx, rax\n" ++ "\tpush rcx\n"
-compileExpr         :: Expr -> Closure -> String
-compileAddExpr      :: AddExpr -> Closure -> String
-compileMulExpr      :: MulExpr -> Closure -> String
-compilePrimaryExpr  :: PrimaryExpr -> Closure -> String
+compileExpr         :: Expr -> Stack -> String
+compileAddExpr      :: AddExpr -> Stack -> String
+compileMulExpr      :: MulExpr -> Stack -> String
+compilePrimaryExpr  :: PrimaryExpr -> Stack -> String
 
 compileExpr = compileAddExpr
-compileAddExpr (AddExpr e es) c = compileList (compileMulExpr e c) es c
+compileAddExpr (AddExpr e es) stk = compileList (compileMulExpr e stk) es stk
     where
-        compileList acc [] c = acc
-        compileList acc ((PlusOp, e):es) c   = compileList (acc ++ compileMulExpr e c ++ compileComputationOnStack "add") es c
-        compileList acc ((MinusOp, e):es) c = compileList (acc ++ compileMulExpr e c ++ compileComputationOnStack "sub") es c
+        compileList acc [] stk = acc
+        compileList acc ((PlusOp, e):es) stk      = compileList (acc ++ compileMulExpr e stk ++ compileComputationOnStack "add") es stk
+        compileList acc ((MinusOp, e):es) stk     = compileList (acc ++ compileMulExpr e stk ++ compileComputationOnStack "sub") es stk
 
 compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where
-        compileList acc [] c = acc
-        compileList acc ((MulOp, e):es) c  = compileList (acc ++ compilePrimaryExpr e c ++ compileComputationOnStack "imul") es c
-        compileList acc ((DivOp, e):es) c   = undefined
-compilePrimaryExpr (IntExpr i) c     = "\tpush " ++ show i ++ "\n"
-compilePrimaryExpr (ParenExpr e) c   = compileExpr e c
-compilePrimaryExpr (VarExpr name) c = undefined
+        compileList acc [] stk = acc
+        compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ compileComputationOnStack "imul") es stk
+        compileList acc ((DivOp, e):es) stk       = undefined
+compilePrimaryExpr (IntExpr i) stk        = "\tpush " ++ show i ++ "\n"
+compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
+compilePrimaryExpr (VarExpr name) stk     = printf "\tpush qword [rbp - %d]\n" (off * 8)
+    where
+        Just off = Data.Map.lookup name stk 
 
 compileStas :: [Statement] -> String
-compileStas stas =  foldl (\acc sta -> acc ++ compileSta sta) start stas ++ end
+compileStas stas = evals ++ end
     where
-        compileSta (VarDefSta _ _) = undefined
-        compileSta (EvalSta e) = compileExpr e Data.Map.empty ++ 
-            "    pop rsi\n\
+        (var_defs, stk) = foldl f (start, Data.Map.empty) (filter filter_var stas)
+        align_defs = if even (size stk) then var_defs ++ "\tpush 0\n" else var_defs
+        (evals, _) = foldl f (align_defs, stk) (filter (not <$> filter_var) stas)
+        filter_var sta = case sta of 
+            VarDefSta _ _   -> True
+            _               -> False
+        f :: (String, Stack) -> Statement -> (String, Stack)
+        f  (str, stk) sta = (str ++ str2, stk2)
+            where (str2, stk2) = compileSta sta stk
+        compileSta :: Statement -> Stack -> (String, Stack)
+        compileSta (VarDefSta name e) stk = (compileExpr e stk, insert name count stk)
+            where count = size stk + 1
+        compileSta (EvalSta e) stk = (compileExpr e stk ++ printf, stk)
+            where printf = "    pop rsi\n\
 \    mov rdi, format\n\
 \    mov rax, 0\n\
 \    call printf\n"
@@ -209,8 +222,10 @@ compileStas stas =  foldl (\acc sta -> acc ++ compileSta sta) start stas ++ end
 \extern exit             \n\
 \global         _start   \n\     
 \_start:                 \n\
+\    push rbp            \n\
+\    mov rbp, rsp        \n\
 \                        \n" 
-        end = "\tmov rdi, 0\n\tcall exit\n"
+        end = ([1..(size stk)] >>= const "\tpop rax\n") ++  "\tpop rbp\n\tmov rdi, 0\n\tcall exit\n"
 
 test :: IO ()
 test = do
