@@ -188,14 +188,21 @@ compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where
         compileList acc [] c = acc
         compileList acc ((MulOp, e):es) c  = compileList (acc ++ compilePrimaryExpr e c ++ compileComputationOnStack "imul") es c
-        compileList acc ((DivOp, e):es) c   = compileList (acc ++ compilePrimaryExpr e c ++ compileComputationOnStack "divq") es c
+        compileList acc ((DivOp, e):es) c   = undefined
 compilePrimaryExpr (IntExpr i) c     = "\tpush " ++ show i ++ "\n"
 compilePrimaryExpr (ParenExpr e) c   = compileExpr e c
 compilePrimaryExpr (VarExpr name) c = undefined
 
 compileStas :: [Statement] -> String
-compileStas stas =  
-    "section        .data          \n\     
+compileStas stas =  foldl (\acc sta -> acc ++ compileSta sta) start stas ++ end
+    where
+        compileSta (VarDefSta _ _) = undefined
+        compileSta (EvalSta e) = compileExpr e Data.Map.empty ++ 
+            "    pop rsi\n\
+\    mov rdi, format\n\
+\    mov rax, 0\n\
+\    call printf\n"
+        start =     "section        .data          \n\     
 \    format        db \"The result is: %i!\", 0xa, 0x0   \n\
 \section        .text    \n\
 \extern printf           \n\
@@ -203,17 +210,7 @@ compileStas stas =
 \global         _start   \n\     
 \_start:                 \n\
 \                        \n" 
-    ++ compileSta (head stas) ++ "\tmov rdi, 0\n\tcall exit\n"
-    where
-        f :: String -> Statement -> String
-        f acc (EvalSta expr) = undefined
-        compileSta :: Statement -> String
-        compileSta (VarDefSta _ _) = undefined
-        compileSta (EvalSta e) = compileExpr e Data.Map.empty ++ 
-            "    pop rsi\n\
-\    mov rdi, format\n\
-\    mov rax, 0\n\
-\    call printf\n"
+        end = "\tmov rdi, 0\n\tcall exit\n"
 
 test :: IO ()
 test = do

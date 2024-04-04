@@ -31,5 +31,30 @@ _start:
     mov rdi, format
     mov rax, 0
     call printf
+	push 5
+	push 9
+	push 2
+	push 12
+	push 3
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	pop rax
+	pop rcx
+	add rcx, rax
+	push rcx
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	pop rax
+	pop rcx
+	sub rcx, rax
+	push rcx
+    pop rsi
+    mov rdi, format
+    mov rax, 0
+    call printf
 	mov rdi, 0
 	call exit
