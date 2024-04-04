@@ -8,6 +8,8 @@ import System.Environment (getArgs)
 import GHC.IO.FD (openFile)
 import qualified Control.Applicative as Applicative
 import qualified Control.Applicative as Map
+import Text.Printf
+import Control.Monad.State (State)
 
 newtype Parser i r = Parser { run :: [i] -> Maybe ([i], r)}
 instance Functor (Parser i) where
@@ -54,7 +56,7 @@ data MulExpr = MulExpr PrimaryExpr [(MultiplicativeOp, PrimaryExpr)]
     deriving (Show, Eq)
 data PrimaryExpr = IntExpr Int | VarExpr Iden | ParenExpr Expr
     deriving (Show, Eq)
-
+    
 data Statement = VarDefSta Iden Expr | EvalSta Expr
     deriving (Show, Eq)
 ws :: StringParser ()
@@ -155,8 +157,8 @@ staP = varDefStaP <|> evalStaP
 stasP :: Parser Token [Statement]
 stasP = many staP
 
-runSta :: [Statement] -> IO ()
-runSta stas = snd $ runSta' (Data.Map.empty, pure ()) stas 
+runStas :: [Statement] -> IO ()
+runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas 
     where
         f :: (Closure, IO ()) -> Statement -> (Closure, IO ())
         f (c, io) (VarDefSta name expr)  = (insert name expr c, io)
@@ -166,6 +168,54 @@ runSta stas = snd $ runSta' (Data.Map.empty, pure ()) stas
 
 
 
+
+
+compileComputationOnStack :: String -> String 
+compileComputationOnStack inst = "\tpop rax\n" ++ "\tpop rcx\n" ++ "\t" ++ inst ++ " rcx, rax\n" ++ "\tpush rcx\n"
+compileExpr         :: Expr -> Closure -> String
+compileAddExpr      :: AddExpr -> Closure -> String
+compileMulExpr      :: MulExpr -> Closure -> String
+compilePrimaryExpr  :: PrimaryExpr -> Closure -> String
+
+compileExpr = compileAddExpr
+compileAddExpr (AddExpr e es) c = compileList (compileMulExpr e c) es c
+    where
+        compileList acc [] c = acc
+        compileList acc ((PlusOp, e):es) c   = compileList (acc ++ compileMulExpr e c ++ compileComputationOnStack "add") es c
+        compileList acc ((MinusOp, e):es) c = compileList (acc ++ compileMulExpr e c ++ compileComputationOnStack "sub") es c
+
+compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
+    where
+        compileList acc [] c = acc
+        compileList acc ((MulOp, e):es) c  = compileList (acc ++ compilePrimaryExpr e c ++ compileComputationOnStack "imul") es c
+        compileList acc ((DivOp, e):es) c   = compileList (acc ++ compilePrimaryExpr e c ++ compileComputationOnStack "divq") es c
+compilePrimaryExpr (IntExpr i) c     = "\tpush " ++ show i ++ "\n"
+compilePrimaryExpr (ParenExpr e) c   = compileExpr e c
+compilePrimaryExpr (VarExpr name) c = undefined
+
+compileStas :: [Statement] -> String
+compileStas stas =  
+    "section        .data          \n\     
+\    format        db \"The result is: %i!\", 0xa, 0x0   \n\
+\    result     dq 0     \n\
+\section        .text    \n\
+\extern printf           \n\
+\extern exit             \n\
+\global         _start   \n\     
+\_start:                 \n\
+\                        \n" 
+    ++ compileSta (head stas) ++ "\tmov rdi, 0\n\tcall exit\n"
+    where
+        f :: String -> Statement -> String
+        f acc (EvalSta expr) = undefined
+        compileSta :: Statement -> String
+        compileSta (VarDefSta _ _) = undefined
+        compileSta (EvalSta e) = compileExpr e Data.Map.empty ++ 
+            "    pop qword [result]\n\
+\    mov rsi, [result]\n\
+\    mov rdi, format\n\
+\    mov rax, 0\n\
+\    call printf\n"
 
 test :: IO ()
 test = do
@@ -184,13 +234,14 @@ test = do
 
 main :: IO ()
 main = do
-    file_path:_ <- getArgs
-    file_content <- readFile file_path
+    cal_path:out_path:_ <- getArgs
+    file_content <- readFile cal_path
     let Just stas = do
             (_, tokens) <- run tokensP file_content
             (_, stas) <- run stasP tokens
             return stas
-    runSta stas
+    runStas stas
+    writeFile out_path $ compileStas stas
     return ()
 
 
