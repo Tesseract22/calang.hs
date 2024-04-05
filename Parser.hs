@@ -2,6 +2,7 @@
 import Distribution.Fields (ParseResult)
 import Control.Applicative (Alternative, empty, (<|>), many, some)
 import Control.Monad (void)
+import Data.Function ((&))
 import Data.Char (isNumber, isAlpha, isAlphaNum)
 import Data.Map (Map, insert, lookup, empty, size, singleton)
 import System.Environment (getArgs)
@@ -164,10 +165,10 @@ runStas :: [Statement] -> IO ()
 runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas 
     where
         f :: (Closure, IO ()) -> Statement -> (Closure, IO ())
-        f (c, io) (VarDefSta name expr)  = (insert name expr c, io)
+        f (c, io) (VarDefSta name expr)  = (insert name (AddExpr (MulExpr (evalExpr expr c & round & IntExpr) []) []) c, io)
         f (c, io) (EvalSta expr)         = (c, io >>= const (print $ evalExpr expr c))
         runSta' :: (Closure, IO ()) -> [Statement] -> (Closure, IO ())
-        runSta' = Prelude.foldl f
+        runSta' = Prelude.foldl f 
 
 
 
@@ -206,8 +207,7 @@ compileStas :: [Statement] -> String
 compileStas stas = evals ++ end
     where
         (var_defs, stk) = foldl f (start, Data.Map.empty) (filter filter_var stas)
-        align_defs = if even (size stk) then var_defs ++ "\tpush 0\n" else var_defs
-        (evals, _) = foldl f (align_defs, stk) (filter (not <$> filter_var) stas)
+        (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
         filter_var sta = case sta of 
             VarDefSta _ _   -> True
             _               -> False
@@ -221,13 +221,31 @@ compileStas stas = evals ++ end
             where printf = "    pop rsi\n\
 \    mov rdi, format\n\
 \    mov rax, 0\n\
-\    call printf\n"
-        start =     "section        .data          \n\     
-\    format        db \"= %i\", 0xa, 0x0   \n\
+\    call align_printf\n"
+        start =     "section        .data   \n\     
+\    format        db \"= %i\", 0xa, 0x0    \n\
+\    aligned       db 0                     \n\ 
 \section        .text    \n\
 \extern printf           \n\
 \extern exit             \n\
 \global         _start   \n\     
+\align_printf:            \n\
+\    mov rbx, rsp        \n\
+\    and rbx, 0x000000000000000f\n\
+\    cmp rbx, 0             \n\
+\    je .align_end          \n\
+\    .align:                \n\
+\        push rbx           \n\
+\        mov byte [aligned], 1  \n\
+\    .align_end:                \n\
+\    call printf                \n\
+\    cmp byte [aligned], 1      \n\
+\    jne .unalign_end           \n\
+\    .unalign:                  \n\
+\        pop rbx                \n\
+\        mov byte [aligned], 0  \n\
+\    .unalign_end:              \n\
+\    ret                \n\
 \_start:                 \n\
 \    push rbp            \n\
 \    mov rbp, rsp        \n\
