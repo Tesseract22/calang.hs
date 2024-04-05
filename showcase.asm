@@ -1,5 +1,5 @@
 section        .data          
-    format        db "The result is: %i!", 0xa, 0x0   
+    format        db "= %i", 0xa, 0x0   
 section        .text    
 extern printf           
 extern exit             
@@ -62,6 +62,28 @@ _start:
 	pop rcx
 	imul rcx, rax
 	push rcx
+    pop rsi
+    mov rdi, format
+    mov rax, 0
+    call printf
+	push 10
+	push 3
+	pop rbx
+	pop rax
+	xor rdx, rdx,
+	div rbx
+	push rdx
+	push 9
+	pop rax
+	pop rcx
+	imul rcx, rax
+	push rcx
+	push 3
+	pop rbx
+	pop rax
+	xor rdx, rdx,
+	div rbx
+	push rax
     pop rsi
     mov rdi, format
     mov rax, 0
