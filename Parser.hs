@@ -10,6 +10,7 @@ import qualified Control.Applicative as Applicative
 import qualified Control.Applicative as Map
 import Text.Printf
 import Control.Monad.State (State)
+import Data.Fixed (mod')
 
 newtype Parser i r = Parser { run :: [i] -> Maybe ([i], r)}
 instance Functor (Parser i) where
@@ -40,7 +41,7 @@ charP c = charPredP (==c)
 stringP :: String -> StringParser String
 stringP = traverse charP
 
-data MultiplicativeOp = MulOp | DivOp
+data MultiplicativeOp = MulOp | DivOp | ModOp
     deriving (Show, Eq)
 data AdditiveOp = PlusOp | MinusOp
     deriving (Show, Eq)
@@ -75,6 +76,7 @@ tokenP =
         AddOpTok MinusOp <$ charP '-' <|>
         MulOpTok MulOp <$ charP '*' <|>
         MulOpTok DivOp <$ charP '/' <|>
+        MulOpTok ModOp <$ charP '%' <|>
         Assign <$ stringP ":=" <|>
         Equal <$ charP '=' <|>
         Lparen <$ charP '(' <|>
@@ -138,6 +140,7 @@ evalMulExpr (MulExpr e es) c = evalList (evalPrimaryExpr e c) es c
         evalList acc [] c = acc
         evalList acc ((MulOp, e):es) c  = evalList (acc * evalPrimaryExpr e c) es c
         evalList acc ((DivOp, e):es) c   = evalList (acc / evalPrimaryExpr e c) es c
+        evalList acc ((ModOp, e):es) c   = evalList (acc `mod'` evalPrimaryExpr e c) es c
 evalPrimaryExpr (IntExpr i) c     = fromIntegral i
 evalPrimaryExpr (ParenExpr e) c   = evalExpr e c
 evalPrimaryExpr (VarExpr name) c = evalExpr e c
@@ -188,8 +191,11 @@ compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where
         compileList acc [] stk = acc
         compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ compileComputationOnStack "imul") es stk
-        compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ div_asm) es stk
-        div_asm = "\tpop rbx\n\tpop rax\n\txor rdx, rdx,\n\tdiv rbx\n\tpush rax\n"
+        compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ div) es stk
+        compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ mod) es stk
+        div_mod = "\tpop rbx\n\tpop rax\n\txor rdx, rdx,\n\tdiv rbx\n"
+        div = div_mod ++ "\tpush rax\n"
+        mod = div_mod ++ "\tpush rdx\n"
 compilePrimaryExpr (IntExpr i) stk        = "\tpush " ++ show i ++ "\n"
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
 compilePrimaryExpr (VarExpr name) stk     = printf "\tpush qword [rbp - %d]\n" (off * 8)
@@ -217,7 +223,7 @@ compileStas stas = evals ++ end
 \    mov rax, 0\n\
 \    call printf\n"
         start =     "section        .data          \n\     
-\    format        db \"The result is: %i!\", 0xa, 0x0   \n\
+\    format        db \"= %i\", 0xa, 0x0   \n\
 \section        .text    \n\
 \extern printf           \n\
 \extern exit             \n\
