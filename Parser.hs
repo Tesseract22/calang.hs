@@ -188,7 +188,8 @@ compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where
         compileList acc [] stk = acc
         compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ compileComputationOnStack "imul") es stk
-        compileList acc ((DivOp, e):es) stk       = undefined
+        compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ div_asm) es stk
+        div_asm = "\tpop rbx\n\tpop rax\n\txor rdx, rdx,\n\tdiv rbx\n\tpush rax\n"
 compilePrimaryExpr (IntExpr i) stk        = "\tpush " ++ show i ++ "\n"
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
 compilePrimaryExpr (VarExpr name) stk     = printf "\tpush qword [rbp - %d]\n" (off * 8)
