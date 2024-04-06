@@ -13,6 +13,8 @@ import Text.Printf
 import Control.Monad.State (State)
 import Data.Fixed (mod')
 
+import Virtual (Inst(..), Program, compileProgram, compileInst)
+
 newtype Parser i r = Parser { run :: [i] -> Maybe ([i], r)}
 instance Functor (Parser i) where
     fmap :: (r1 -> r2) -> Parser i r1 -> Parser i r2
@@ -69,7 +71,7 @@ intTokP :: StringParser Token
 intTokP = IntTok . read <$> some (charPredP isNumber)
 idenTokP :: StringParser Token
 idenTokP = IdenTok <$> ((:) <$> charPredP isAlpha <*> many (charPredP isAlphaNum) )
-
+commentP = charP
 tokenP =
     ws *>
     (
@@ -174,83 +176,47 @@ runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas
 
 
 type Stack = Map String Int
-compileComputationOnStack :: String -> String 
-compileComputationOnStack inst = "\tpop rax\n" ++ "\tpop rcx\n" ++ "\t" ++ inst ++ " rcx, rax\n" ++ "\tpush rcx\n"
-compileExpr         :: Expr -> Stack -> String
-compileAddExpr      :: AddExpr -> Stack -> String
-compileMulExpr      :: MulExpr -> Stack -> String
-compilePrimaryExpr  :: PrimaryExpr -> Stack -> String
+
+compileExpr         :: Expr -> Stack -> [Inst]
+compileAddExpr      :: AddExpr -> Stack -> [Inst]
+compileMulExpr      :: MulExpr -> Stack -> [Inst]
+compilePrimaryExpr  :: PrimaryExpr -> Stack -> [Inst]
+
 
 compileExpr = compileAddExpr
 compileAddExpr (AddExpr e es) stk = compileList (compileMulExpr e stk) es stk
     where
         compileList acc [] stk = acc
-        compileList acc ((PlusOp, e):es) stk      = compileList (acc ++ compileMulExpr e stk ++ compileComputationOnStack "add") es stk
-        compileList acc ((MinusOp, e):es) stk     = compileList (acc ++ compileMulExpr e stk ++ compileComputationOnStack "sub") es stk
+        compileList acc ((PlusOp, e):es) stk      = compileList (acc ++ compileMulExpr e stk ++ [InstAdd]) es stk
+        compileList acc ((MinusOp, e):es) stk     = compileList (acc ++ compileMulExpr e stk ++ [InstSub]) es stk
 
 compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where
         compileList acc [] stk = acc
-        compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ compileComputationOnStack "imul") es stk
-        compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ div) es stk
-        compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ mod) es stk
-        div_mod = "\tpop rbx\n\tpop rax\n\txor rdx, rdx,\n\tdiv rbx\n"
-        div = div_mod ++ "\tpush rax\n"
-        mod = div_mod ++ "\tpush rdx\n"
-compilePrimaryExpr (IntExpr i) stk        = "\tpush " ++ show i ++ "\n"
+        compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMul]) es stk
+        compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstDiv]) es stk
+        compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMod]) es stk
+compilePrimaryExpr (IntExpr i) stk        =  [InstPush i]
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
-compilePrimaryExpr (VarExpr name) stk     = printf "\tpush qword [rbp - %d]\n" (off * 8)
+compilePrimaryExpr (VarExpr name) stk     = [InstDupBase off]
     where
         Just off = Data.Map.lookup name stk 
 
-compileStas :: [Statement] -> String
-compileStas stas = evals ++ end
+compileStas :: [Statement] -> [Inst]
+compileStas stas = evals ++ [InstPop (size stk)]
     where
-        (var_defs, stk) = foldl f (start, Data.Map.empty) (filter filter_var stas)
+        (var_defs, stk) = foldl f ([], Data.Map.empty) (filter filter_var stas)
         (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
         filter_var sta = case sta of 
             VarDefSta _ _   -> True
             _               -> False
-        f :: (String, Stack) -> Statement -> (String, Stack)
-        f  (str, stk) sta = (str ++ str2, stk2)
-            where (str2, stk2) = compileSta sta stk
-        compileSta :: Statement -> Stack -> (String, Stack)
+        f :: ([Inst], Stack) -> Statement -> ([Inst], Stack)
+        f  (inst1, stk) sta = (inst1 ++ inst2, stk2)
+            where (inst2, stk2) = compileSta sta stk
+        compileSta :: Statement -> Stack -> ([Inst], Stack)
         compileSta (VarDefSta name e) stk = (compileExpr e stk, insert name count stk)
             where count = size stk + 1
-        compileSta (EvalSta e) stk = (compileExpr e stk ++ printf, stk)
-            where printf = "    pop rsi\n\
-\    mov rdi, format\n\
-\    mov rax, 0\n\
-\    call align_printf\n"
-        start =     "section        .data   \n\     
-\    format        db \"= %i\", 0xa, 0x0    \n\
-\    aligned       db 0                     \n\ 
-\section        .text    \n\
-\extern printf           \n\
-\extern exit             \n\
-\global         _start   \n\     
-\align_printf:            \n\
-\    mov rbx, rsp        \n\
-\    and rbx, 0x000000000000000f\n\
-\    cmp rbx, 0             \n\
-\    je .align_end          \n\
-\    .align:                \n\
-\        push rbx           \n\
-\        mov byte [aligned], 1  \n\
-\    .align_end:                \n\
-\    call printf                \n\
-\    cmp byte [aligned], 1      \n\
-\    jne .unalign_end           \n\
-\    .unalign:                  \n\
-\        pop rbx                \n\
-\        mov byte [aligned], 0  \n\
-\    .unalign_end:              \n\
-\    ret                \n\
-\_start:                 \n\
-\    push rbp            \n\
-\    mov rbp, rsp        \n\
-\                        \n" 
-        end = ([1..(size stk)] >>= const "\tpop rax\n") ++  "\tpop rbp\n\tmov rdi, 0\n\tcall exit\n"
+        compileSta (EvalSta e) stk = (compileExpr e stk ++ [InstShow], stk)
 
 test :: IO ()
 test = do
@@ -276,7 +242,7 @@ main = do
             (_, stas) <- run stasP tokens
             return stas
     runStas stas
-    writeFile out_path $ compileStas stas
+    writeFile out_path $ compileProgram $ compileStas stas
     return ()
 
 
