@@ -44,33 +44,79 @@ charP c = charPredP (==c)
 stringP :: String -> StringParser String
 stringP = traverse charP
 
+
+-- Operator
 data MultiplicativeOp = MulOp | DivOp | ModOp
     deriving (Show, Eq)
 data AdditiveOp = PlusOp | MinusOp
     deriving (Show, Eq)
 type Iden = String
-data Token = AddOpTok AdditiveOp | MulOpTok MultiplicativeOp | Assign | Equal | Lparen | Rparen | IntTok Int | IdenTok Iden
+-- Token
+data Token = AddOpTok AdditiveOp | MulOpTok MultiplicativeOp | Assign | Equal | Lparen | Rparen | IntTok Int | FloatTok Float | IdenTok Iden
     deriving (Show, Eq)
 type TokenParser = Parser Token
+-- Value & Type
+data Val = ValI Int | ValF Float
+    deriving (Eq)
+instance Show Val where
+    show (ValI i) = show i
+    show (ValF f) = show f
+instance Num Val where
+    (+) :: Val -> Val -> Val
+    (+) (ValI x) (ValI y) = ValI (x + y)
+    (+) (ValF x) (ValF y) = ValF (x + y)
+    (+) (ValI x) y = ValF (fromIntegral x) + y
+    (+) y (ValI x) = ValF (fromIntegral x) + y
 
+
+    (*) (ValI x) (ValI y) = ValI (x * y)
+    (*) (ValF x) (ValF y) = ValF (x * y)
+    (*) (ValI x) y = ValF (fromIntegral x) * y
+    (*) y (ValI x) = ValF (fromIntegral x) * y
+
+    abs (ValF f) = ValF $ abs f
+    abs (ValI i) = ValI $ abs i
+
+    signum (ValF f) = ValF $ signum f
+    signum (ValI i) = ValI $ signum i
+
+    fromInteger = ValI . fromInteger
+    negate (ValI i) = ValI (negate i)
+    negate (ValF f) = ValF (negate f)
+instance Fractional Val where
+    (/) (ValI x) (ValI y) = ValI (x `div` y)
+    (/) (ValF x) (ValF y) = ValF (x / y)
+    (/) (ValI x) y = ValF (fromIntegral x) / y
+    (/) y (ValI x) = y / ValF (fromIntegral x)
+
+    fromRational r = ValF $ fromRational r
+(%.) :: Val -> Val -> Val
+(%.) (ValI x) (ValI y) = ValI (x `mod` y)
+(%.) (ValF x) (ValF y) = ValF (x `mod'` y)
+(%.) (ValI x) y = ValF (fromIntegral x) %. y
+(%.) y (ValI x) = y %. ValF (fromIntegral x) 
+-- Expression
 type Expr = AddExpr
 data AddExpr =  AddExpr MulExpr [(AdditiveOp, MulExpr)]
     deriving (Show, Eq)
 data MulExpr = MulExpr PrimaryExpr [(MultiplicativeOp, PrimaryExpr)]
     deriving (Show, Eq)
-data PrimaryExpr = IntExpr Int | VarExpr Iden | ParenExpr Expr
+data PrimaryExpr = ValExpr Val | VarExpr Iden | ParenExpr Expr
     deriving (Show, Eq)
-    
+
 data Statement = VarDefSta Iden Expr | EvalSta Expr
     deriving (Show, Eq)
 ws :: StringParser ()
 ws = void $ many $ charP ' ' <|> charP '\t' <|> charP '\n'
 
-
+-- a = [x], b = [x] -> [x]
+-- b = [x] -> [x], c = [x]
 intTokP :: StringParser Token
 intTokP = IntTok . read <$> some (charPredP isNumber)
 idenTokP :: StringParser Token
 idenTokP = IdenTok <$> ((:) <$> charPredP isAlpha <*> many (charPredP isAlphaNum) )
+floatP :: StringParser Token
+floatP = FloatTok . read <$> ((++) <$> some (charPredP isNumber) <*> ((:) <$> charP '.' <*> some (charPredP isNumber)))
 commentP = charP
 tokenP =
     ws *>
@@ -84,6 +130,7 @@ tokenP =
         Equal <$ charP '=' <|>
         Lparen <$ charP '(' <|>
         Rparen <$ charP ')' <|>
+        floatP <|>
         intTokP <|>
         idenTokP
     )
@@ -102,11 +149,12 @@ pExprP :: TokenParser PrimaryExpr
 mulExprP :: TokenParser MulExpr
 addExprP :: TokenParser AddExpr
 exprP :: TokenParser Expr
-pExprP = 
+pExprP =
     Parser (\case
-    (IntTok i):xs -> Just (xs, IntExpr i)
+    (IntTok i):xs -> Just (xs, ValExpr (ValI i))
     (IdenTok s):xs -> Just (xs, VarExpr s)
-    _ -> Nothing) <|> 
+    (FloatTok f):xs -> Just (xs, ValExpr (ValF f))
+    _ -> Nothing) <|>
     ParenExpr <$> (idP Lparen *> exprP <* idP Rparen)
 
 mulExprP = MulExpr <$> pExprP <*> many rest
@@ -126,10 +174,10 @@ addExprP = AddExpr <$> mulExprP <*> many rest
 exprP = addExprP
 
 type Closure = Map Iden Expr
-evalExpr :: Expr -> Closure-> Float
-evalAddExpr :: AddExpr -> Closure -> Float
-evalMulExpr :: MulExpr -> Closure-> Float
-evalPrimaryExpr :: PrimaryExpr -> Closure -> Float
+evalExpr :: Expr -> Closure-> Val
+evalAddExpr :: AddExpr -> Closure -> Val
+evalMulExpr :: MulExpr -> Closure-> Val
+evalPrimaryExpr :: PrimaryExpr -> Closure -> Val
 
 evalExpr = evalAddExpr
 evalAddExpr (AddExpr e es) c = evalList (evalMulExpr e c) es c
@@ -143,34 +191,35 @@ evalMulExpr (MulExpr e es) c = evalList (evalPrimaryExpr e c) es c
         evalList acc [] c = acc
         evalList acc ((MulOp, e):es) c  = evalList (acc * evalPrimaryExpr e c) es c
         evalList acc ((DivOp, e):es) c   = evalList (acc / evalPrimaryExpr e c) es c
-        evalList acc ((ModOp, e):es) c   = evalList (acc `mod'` evalPrimaryExpr e c) es c
-evalPrimaryExpr (IntExpr i) c     = fromIntegral i
+        evalList acc ((ModOp, e):es) c   = evalList (acc %. evalPrimaryExpr e c) es c
+evalPrimaryExpr (ValExpr v) c     = v
 evalPrimaryExpr (ParenExpr e) c   = evalExpr e c
 evalPrimaryExpr (VarExpr name) c = evalExpr e c
-    where Just e = Data.Map.lookup name c 
+    where Just e = Data.Map.lookup name c
 
 
 staP :: TokenParser Statement
 varDefStaP :: TokenParser Statement
 evalStaP :: TokenParser Statement
 varDefStaP = VarDefSta <$> (idenP <* idP Assign) <*> exprP
-    where 
+    where
         idenP = Parser $ \case
             (IdenTok s):xs -> Just (xs, s)
-            _ -> Nothing 
+            _ -> Nothing
 evalStaP = EvalSta <$> exprP <* idP Equal
 staP = varDefStaP <|> evalStaP
 stasP :: Parser Token [Statement]
 stasP = many staP
 
 runStas :: [Statement] -> IO ()
-runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas 
+runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas
     where
         f :: (Closure, IO ()) -> Statement -> (Closure, IO ())
-        f (c, io) (VarDefSta name expr)  = (insert name (AddExpr (MulExpr (evalExpr expr c & round & IntExpr) []) []) c, io)
+        f (c, io) (VarDefSta name expr)  = (insert name resolved c, io)
+            where resolved = AddExpr (MulExpr (evalExpr expr c & ValExpr) []) []
         f (c, io) (EvalSta expr)         = (c, io >>= const (print $ evalExpr expr c))
         runSta' :: (Closure, IO ()) -> [Statement] -> (Closure, IO ())
-        runSta' = Prelude.foldl f 
+        runSta' = Prelude.foldl f
 
 
 
@@ -196,18 +245,18 @@ compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
         compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMul]) es stk
         compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstDiv]) es stk
         compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMod]) es stk
-compilePrimaryExpr (IntExpr i) stk        =  [InstPush i]
+-- compilePrimaryExpr (IntExpr i) stk        =  [InstPush i]
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
 compilePrimaryExpr (VarExpr name) stk     = [InstDupBase off]
     where
-        Just off = Data.Map.lookup name stk 
+        Just off = Data.Map.lookup name stk
 
 compileStas :: [Statement] -> [Inst]
 compileStas stas = evals ++ [InstPop (size stk)]
     where
         (var_defs, stk) = foldl f ([], Data.Map.empty) (filter filter_var stas)
         (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
-        filter_var sta = case sta of 
+        filter_var sta = case sta of
             VarDefSta _ _   -> True
             _               -> False
         f :: ([Inst], Stack) -> Statement -> ([Inst], Stack)
@@ -222,12 +271,12 @@ test :: IO ()
 test = do
     print expr_res
     print sta_res
-    where 
+    where
         expr_res = do
             (_, tokens) <- run tokensP "(3 + 4) * 2 - 10 / 2"
             (_, expr) <- run exprP tokens
             return $ evalExpr expr Data.Map.empty
-        sta_res = do 
+        sta_res = do
             (_, tokens) <- run tokensP "a := 5"
             (_, sta) <- run staP tokens
             return sta
@@ -242,12 +291,12 @@ main = do
             (_, stas) <- run stasP tokens
             return stas
     runStas stas
-    writeFile out_path $ compileProgram $ compileStas stas
+    -- writeFile out_path $ compileProgram $ compileStas stas
     return ()
 
 
-        
-        
+
+
 
 
 
