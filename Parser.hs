@@ -183,15 +183,15 @@ evalExpr = evalAddExpr
 evalAddExpr (AddExpr e es) c = evalList (evalMulExpr e c) es c
     where
         evalList acc [] c = acc
-        evalList acc ((PlusOp, e):es) c   = evalList (acc + evalMulExpr e c) es c
-        evalList acc ((MinusOp, e):es) c = evalList (acc - evalMulExpr e c) es c
+        evalList acc ((PlusOp,  e):es) c    = evalList (acc +   evalMulExpr e c) es c
+        evalList acc ((MinusOp, e):es) c    = evalList (acc -   evalMulExpr e c) es c
 
 evalMulExpr (MulExpr e es) c = evalList (evalPrimaryExpr e c) es c
     where
         evalList acc [] c = acc
-        evalList acc ((MulOp, e):es) c  = evalList (acc * evalPrimaryExpr e c) es c
-        evalList acc ((DivOp, e):es) c   = evalList (acc / evalPrimaryExpr e c) es c
-        evalList acc ((ModOp, e):es) c   = evalList (acc %. evalPrimaryExpr e c) es c
+        evalList acc ((MulOp, e):es) c      = evalList (acc *   evalPrimaryExpr e c) es c
+        evalList acc ((DivOp, e):es) c      = evalList (acc /   evalPrimaryExpr e c) es c
+        evalList acc ((ModOp, e):es) c      = evalList (acc %.  evalPrimaryExpr e c) es c
 evalPrimaryExpr (ValExpr v) c     = v
 evalPrimaryExpr (ParenExpr e) c   = evalExpr e c
 evalPrimaryExpr (VarExpr name) c = evalExpr e c
@@ -222,9 +222,12 @@ runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas
         runSta' = Prelude.foldl f
 
 
+-- 3.0 * 4
+-- f [(*, 4)]
 
+type Stack = Map String (Int, Val)
 
-type Stack = Map String Int
+-- resolveExpr         :: (Expr, Val) -> S
 
 compileExpr         :: Expr -> Stack -> ([Inst], Val)
 compileAddExpr      :: AddExpr -> Stack -> ([Inst], Val)
@@ -236,43 +239,69 @@ compileExpr = compileAddExpr
 compileAddExpr (AddExpr e es) stk = compileList (compileMulExpr e stk) es stk
     where
         compileList acc [] stk = acc
-        compileList acc (e:es) stk = case e of
-            (PlusOp, e) -> undefined
-            (MinusOp, e) -> undefined 
+        compileList (insts1, v1) ((op, e):es) stk = 
+            let (insts2, v2) = compileMulExpr e stk in 
+            let v = v1 + v2 in 
+            let insts = case (v1, v2) of
+                    (ValI _, ValF _) -> insts1 ++ [Insti2f] ++ insts2
+                    (ValF _, ValI _) -> insts1 ++ insts2 ++ [Insti2f]
+                    _ -> insts1 ++ insts2 in
+            case v of
+            ValI _ -> case op of
+                PlusOp -> (insts ++ [InstAdd], v)
+                MinusOp-> (insts ++ [InstSub], v)
+            ValF _ -> case op of
+                PlusOp -> (insts ++ [InstAddf], v)
+                MinusOp-> (insts ++ [InstSubf], v)
 
 compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where 
         compileList acc [] stk = acc
-        compileList acc (e:es) stk = case e of
-            (MulOp, e) -> undefined
-            (DivOp, e) -> undefined
-            (ModOp, e) -> undefined
-        -- compileList acc (:es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMul]) es stk
-        -- compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstDiv]) es stk
-        -- compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMod]) es stk
+        compileList (insts1, v1) ((op, e):es) stk = 
+            let (insts2, v2) = compilePrimaryExpr e stk in 
+            let v = v1 + v2 in 
+            let insts = case (v1, v2) of
+                    (ValI _, ValF _) -> insts1 ++ [Insti2f] ++ insts2
+                    (ValF _, ValI _) -> insts1 ++ insts2 ++ [Insti2f]
+                    _ -> insts1 ++ insts2 in
+            case v of
+            ValI _ -> case op of
+                MulOp -> (insts ++ [InstMul], v)
+                DivOp -> (insts ++ [InstDiv], v)
+                ModOp -> (insts ++ [InstMod], v)
+            ValF _ -> case op of
+                MulOp -> (insts ++ [InstMulf], v)
+                DivOp -> (insts ++ [InstDivf], v)
+                ModOp -> (insts ++ [InstModf], v)
 compilePrimaryExpr (ValExpr (ValI i)) stk        =  ([InstPush   i], ValI 0)
 compilePrimaryExpr (ValExpr (ValF f)) stk        =  ([InstPushf  f], ValF 0)
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
-compilePrimaryExpr (VarExpr name) stk     = ([InstDupBase off], undefined)
+compilePrimaryExpr (VarExpr name) stk     = ([InstDupBase off], v) -- TODO
     where
-        Just off = Data.Map.lookup name stk
+        Just (off, v) = Data.Map.lookup name stk
 
 compileStas :: [Statement] -> [Inst]
--- compileStas stas = evals ++ [InstPop (size stk)]
---     where
---         (var_defs, stk) = foldl f ([], Data.Map.empty) (filter filter_var stas)
---         (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
---         filter_var sta = case sta of
---             VarDefSta _ _   -> True
---             _               -> False
---         f :: ([Inst], Stack) -> Statement -> ([Inst], Stack)
---         f  (inst1, stk) sta = (inst1 ++ inst2, stk2)
---             where (inst2, stk2) = compileSta sta stk
---         compileSta :: Statement -> Stack -> ([Inst], Stack)
---         compileSta (VarDefSta name e) stk = (compileExpr e stk, insert name count stk)
---             where count = size stk + 1
---         compileSta (EvalSta e) stk = (compileExpr e stk ++ [InstShow], stk)
-compileStas = undefined
+compileStas stas = evals ++ [InstPop (size stk)]
+    where
+        (var_defs, stk) = foldl f ([], Data.Map.empty) (filter filter_var stas)
+        (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
+        filter_var sta = case sta of
+            VarDefSta _ _   -> True
+            _               -> False
+        f :: ([Inst], Stack) -> Statement -> ([Inst], Stack)
+        f  (inst1, stk) sta = (inst1 ++ inst2, stk2)
+            where (inst2, stk2) = compileSta sta stk
+        compileSta :: Statement -> Stack -> ([Inst], Stack)
+        compileSta (VarDefSta name e) stk = (insts, insert name (count, v) stk)
+            where 
+                count = size stk + 1
+                (insts, v) = compileExpr e stk
+        compileSta (EvalSta e) stk = (insts ++ [instShow], stk)
+            where 
+                (insts, v) = compileExpr e stk
+                instShow = case v of
+                    ValI _ -> InstShow
+                    ValF _ -> InstShowf
 
 test :: IO ()
 test = do
@@ -298,7 +327,7 @@ main = do
             (_, stas) <- run stasP tokens
             return stas
     runStas stas
-    -- writeFile out_path $ compileProgram $ compileStas stas
+    writeFile out_path $ compileProgram $ compileStas stas
     return ()
 
 

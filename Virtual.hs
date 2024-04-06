@@ -20,6 +20,9 @@ data Inst =
     InstModf | 
     InstMulf |
 
+    Insti2f |
+    Instf2i |
+
     InstJump    String | 
     InstJumpEq  String |
 
@@ -28,9 +31,31 @@ data Inst =
     InstShowf
 
 compileInst :: Inst -> String
-compileInst inst = case inst of
-    InstPush    i -> "\tpush " ++ show i ++ "\n"
-    InstPushf   f -> "\tadd rsp, 8\n" ++ printf "\tmov rax, __float64(%f)__\n" f ++ "\tmov [rsp], rax\n"
+debugInst :: Inst -> String
+debugInst inst = "\t; " ++ case inst of
+    InstAdd -> "add"
+    InstSub -> "sub"
+    InstMul -> "mul"
+    InstDiv -> "div"
+    InstMod -> "mod"
+
+    InstAddf -> "addf"
+    InstSubf -> "subf"
+    InstMulf -> "mulf"
+    InstDivf -> "divf"
+    InstModf -> "modf"
+
+    Insti2f -> "i2f"
+    Instf2i -> "f2i"
+
+    InstShow -> "show"
+    InstShowf -> "showf"
+    _ -> ""
+    ++ "\n"
+
+compileInst inst = debugInst inst ++ case inst of
+    InstPush    i -> "\tadd rsp, 8\n" ++ "mov qword [rsp], " ++ show i ++ "\n"
+    InstPushf   f -> "\tadd rsp, 8\n" ++ printf "\tmov rax, __float64__(%f)\n" f ++ "\tmov [rsp], rax\n"
     InstPop     i -> "\tsub rsp, " ++ show (i * 8) ++ "\n"
     InstDupBase i -> printf "\tpush qword [rbp - %d]\n" (i * 8)
 
@@ -40,10 +65,13 @@ compileInst inst = case inst of
     InstDiv -> "\tpop rbx\n" ++ "\tpop rax\n" ++ "\txor rdx, rdx,\n" ++ "\tdiv rbx\n" ++ "\tpush rax\n"
     InstMod -> "\tpop rbx\n" ++ "\tpop rax\n" ++ "\txor rdx, rdx,\n" ++ "\tdiv rbx\n" ++ "\tpush rdx\n"
 
-    InstAddf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\taddsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
-    InstSubf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tsubsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
-    InstMulf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tmulsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
-    InstDivf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tdivsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
+    InstAddf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\taddsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
+    InstSubf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tsubsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
+    InstMulf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tmulsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
+    InstDivf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tdivsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
+
+    Insti2f -> "\tmov rax, [rsp]\n" ++ "\tcvtsi2sd xmm0, rax\n" ++ "\tmovsd [rsp], xmm0\n"
+    Instf2i -> undefined
     
     InstJump    lable -> "\tjmp " ++ lable ++ "\n" 
     InstJumpEq  lable -> "\tcmp [rsp - 8], [rsp]\n" ++ compileInst (InstPop 2)
