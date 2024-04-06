@@ -226,46 +226,53 @@ runStas stas = snd $ runSta' (Data.Map.empty, pure ()) stas
 
 type Stack = Map String Int
 
-compileExpr         :: Expr -> Stack -> [Inst]
-compileAddExpr      :: AddExpr -> Stack -> [Inst]
-compileMulExpr      :: MulExpr -> Stack -> [Inst]
-compilePrimaryExpr  :: PrimaryExpr -> Stack -> [Inst]
+compileExpr         :: Expr -> Stack -> ([Inst], Val)
+compileAddExpr      :: AddExpr -> Stack -> ([Inst], Val)
+compileMulExpr      :: MulExpr -> Stack -> ([Inst], Val)
+compilePrimaryExpr  :: PrimaryExpr -> Stack -> ([Inst], Val)
 
 
 compileExpr = compileAddExpr
 compileAddExpr (AddExpr e es) stk = compileList (compileMulExpr e stk) es stk
     where
         compileList acc [] stk = acc
-        compileList acc ((PlusOp, e):es) stk      = compileList (acc ++ compileMulExpr e stk ++ [InstAdd]) es stk
-        compileList acc ((MinusOp, e):es) stk     = compileList (acc ++ compileMulExpr e stk ++ [InstSub]) es stk
+        compileList acc (e:es) stk = case e of
+            (PlusOp, e) -> undefined
+            (MinusOp, e) -> undefined 
 
 compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
-    where
+    where 
         compileList acc [] stk = acc
-        compileList acc ((MulOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMul]) es stk
-        compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstDiv]) es stk
-        compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMod]) es stk
--- compilePrimaryExpr (IntExpr i) stk        =  [InstPush i]
+        compileList acc (e:es) stk = case e of
+            (MulOp, e) -> undefined
+            (DivOp, e) -> undefined
+            (ModOp, e) -> undefined
+        -- compileList acc (:es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMul]) es stk
+        -- compileList acc ((DivOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstDiv]) es stk
+        -- compileList acc ((ModOp, e):es) stk       = compileList (acc ++ compilePrimaryExpr e stk ++ [InstMod]) es stk
+compilePrimaryExpr (ValExpr (ValI i)) stk        =  ([InstPush   i], ValI 0)
+compilePrimaryExpr (ValExpr (ValF f)) stk        =  ([InstPushf  f], ValF 0)
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
-compilePrimaryExpr (VarExpr name) stk     = [InstDupBase off]
+compilePrimaryExpr (VarExpr name) stk     = ([InstDupBase off], undefined)
     where
         Just off = Data.Map.lookup name stk
 
 compileStas :: [Statement] -> [Inst]
-compileStas stas = evals ++ [InstPop (size stk)]
-    where
-        (var_defs, stk) = foldl f ([], Data.Map.empty) (filter filter_var stas)
-        (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
-        filter_var sta = case sta of
-            VarDefSta _ _   -> True
-            _               -> False
-        f :: ([Inst], Stack) -> Statement -> ([Inst], Stack)
-        f  (inst1, stk) sta = (inst1 ++ inst2, stk2)
-            where (inst2, stk2) = compileSta sta stk
-        compileSta :: Statement -> Stack -> ([Inst], Stack)
-        compileSta (VarDefSta name e) stk = (compileExpr e stk, insert name count stk)
-            where count = size stk + 1
-        compileSta (EvalSta e) stk = (compileExpr e stk ++ [InstShow], stk)
+-- compileStas stas = evals ++ [InstPop (size stk)]
+--     where
+--         (var_defs, stk) = foldl f ([], Data.Map.empty) (filter filter_var stas)
+--         (evals, _) = foldl f (var_defs, stk) (filter (not <$> filter_var) stas)
+--         filter_var sta = case sta of
+--             VarDefSta _ _   -> True
+--             _               -> False
+--         f :: ([Inst], Stack) -> Statement -> ([Inst], Stack)
+--         f  (inst1, stk) sta = (inst1 ++ inst2, stk2)
+--             where (inst2, stk2) = compileSta sta stk
+--         compileSta :: Statement -> Stack -> ([Inst], Stack)
+--         compileSta (VarDefSta name e) stk = (compileExpr e stk, insert name count stk)
+--             where count = size stk + 1
+--         compileSta (EvalSta e) stk = (compileExpr e stk ++ [InstShow], stk)
+compileStas = undefined
 
 test :: IO ()
 test = do

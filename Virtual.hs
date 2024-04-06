@@ -3,9 +3,10 @@ module Virtual (Inst(..), Program, compileInst, compileProgram) where
 import Text.Printf (printf)
 
 data Inst = 
-    InstPush Int | 
-    InstDupBase Int |
-    InstPop Int| 
+    InstPush    Int     |
+    InstPushf   Float   |
+    InstDupBase Int     |
+    InstPop     Int     | 
 
     InstAdd | 
     InstSub | 
@@ -13,32 +14,50 @@ data Inst =
     InstMod | 
     InstMul |
 
-    InstJump String | 
-    InstJumpEq String |
+    InstAddf | 
+    InstSubf | 
+    InstDivf | 
+    InstModf | 
+    InstMulf |
+
+    InstJump    String | 
+    InstJumpEq  String |
 
     InstCall String |
-    InstShow
+    InstShow        |
+    InstShowf
 
 compileInst :: Inst -> String
 compileInst inst = case inst of
-    InstPush i -> "\tpush " ++ show i ++ "\n"
-    InstPop  i -> "\tsub rsp, " ++ show (i * 8) ++ "\n"
+    InstPush    i -> "\tpush " ++ show i ++ "\n"
+    InstPushf   f -> "\tadd rsp, 8\n" ++ printf "\tmov rax, __float64(%f)__\n" f ++ "\tmov [rsp], rax\n"
+    InstPop     i -> "\tsub rsp, " ++ show (i * 8) ++ "\n"
     InstDupBase i -> printf "\tpush qword [rbp - %d]\n" (i * 8)
+
     InstAdd -> "\tpop rax\n" ++ "\tadd   qword [rsp], rax\n"
     InstSub -> "\tpop rax\n" ++ "\tsub   qword [rsp], rax\n"
     InstMul -> "\tpop rax\n" ++ "\timul  qword rax, [rsp]\n" ++ "\tmov [rsp], rax\n"
     InstDiv -> "\tpop rbx\n" ++ "\tpop rax\n" ++ "\txor rdx, rdx,\n" ++ "\tdiv rbx\n" ++ "\tpush rax\n"
     InstMod -> "\tpop rbx\n" ++ "\tpop rax\n" ++ "\txor rdx, rdx,\n" ++ "\tdiv rbx\n" ++ "\tpush rdx\n"
+
+    InstAddf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\taddsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
+    InstSubf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tsubsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
+    InstMulf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tmulsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
+    InstDivf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tdivsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\b" ++ "\tsub rsp, 8\b"
+    
     InstJump    lable -> "\tjmp " ++ lable ++ "\n" 
     InstJumpEq  lable -> "\tcmp [rsp - 8], [rsp]\n" ++ compileInst (InstPop 2)
+
     InstCall    lable -> "\tcall " ++ lable ++ "\n"
-    InstShow          -> "\tpop rsi\n" ++ "\tmov rdi, format\n" ++ "\tmov rax, 0\n" ++compileInst (InstCall "align_printf")
+    InstShow          -> "\tpop rsi\n" ++ "\tmov rdi, format\n" ++  "\tmov rax, 0\n" ++ compileInst (InstCall "align_printf")
+    InstShowf         -> "\tmovsd xmm0, [rsp]\n" ++ "\tsub rsp, 8\n" ++ "\tmov rdi, formatf\n" ++ "\tmov rax, 1\n" ++ compileInst (InstCall "align_printf")
 
 type Program = [Inst]
 
 
 builtinData = "section        .data   \n\     
 \    format        db \"= %i\", 0xa, 0x0    \n\
+\    formatf        db \"= %f\", 0xa, 0x0    \n\
 \    aligned       db 0                     \n"
 
 builtinText = "section        .text    \n\
