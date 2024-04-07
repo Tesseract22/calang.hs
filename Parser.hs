@@ -43,6 +43,10 @@ charP :: Char -> StringParser Char
 charP c = charPredP (==c)
 stringP :: String -> StringParser String
 stringP = traverse charP
+emptiable :: Parser i [r] -> Parser i [r]
+emptiable p = Parser $ \input -> case run p input of
+    Just x -> Just x
+    Nothing -> Just (input, [])
 
 
 -- Operator
@@ -52,7 +56,7 @@ data AdditiveOp = PlusOp | MinusOp
     deriving (Show, Eq)
 type Iden = String
 -- Token
-data Token = AddOpTok AdditiveOp | MulOpTok MultiplicativeOp | Assign | Equal | Lparen | Rparen | IntTok Int | FloatTok Float | IdenTok Iden
+data Token = AddOpTok AdditiveOp | MulOpTok MultiplicativeOp | Assign | Equal | Lparen | Rparen | Comma | FnTok |IntTok Int | FloatTok Float | IdenTok Iden
     deriving (Show, Eq)
 type TokenParser = Parser Token
 -- Value & Type
@@ -104,7 +108,7 @@ data MulExpr = MulExpr PrimaryExpr [(MultiplicativeOp, PrimaryExpr)]
 data PrimaryExpr = ValExpr Val | VarExpr Iden | ParenExpr Expr
     deriving (Show, Eq)
 
-data Statement = VarDefSta Iden Expr | EvalSta Expr
+data Statement = VarDefSta Iden Expr | EvalSta Expr | FnDefSta Iden [Iden] Expr
     deriving (Show, Eq)
 ws :: StringParser ()
 ws = void $ many $ charP ' ' <|> charP '\t' <|> charP '\n'
@@ -130,6 +134,8 @@ tokenP =
         Equal <$ charP '=' <|>
         Lparen <$ charP '(' <|>
         Rparen <$ charP ')' <|>
+        Comma <$ charP ',' <|>
+        FnTok <$ stringP "fn" <|>
         floatP <|>
         intTokP <|>
         idenTokP
@@ -197,17 +203,21 @@ evalPrimaryExpr (ParenExpr e) c   = evalExpr e c
 evalPrimaryExpr (VarExpr name) c = evalExpr e c
     where Just e = Data.Map.lookup name c
 
-
+idenP = Parser $ \case
+            (IdenTok s):xs -> Just (xs, s)
+            _ -> Nothing
 staP :: TokenParser Statement
 varDefStaP :: TokenParser Statement
 evalStaP :: TokenParser Statement
+fnDefStaP :: TokenParser Statement
 varDefStaP = VarDefSta <$> (idenP <* idP Assign) <*> exprP
-    where
-        idenP = Parser $ \case
-            (IdenTok s):xs -> Just (xs, s)
-            _ -> Nothing
 evalStaP = EvalSta <$> exprP <* idP Equal
-staP = varDefStaP <|> evalStaP
+fnDefStaP = FnDefSta <$> (idenP <* idP Assign <* idP FnTok) <*> paramsP  <*> exprP
+    where
+        sepByP = idP Comma
+        elP = idenP
+        paramsP = idP Lparen *> emptiable ((:) <$> elP <*> many (sepByP *> elP)) <* idP Rparen
+staP = varDefStaP <|> evalStaP <|> fnDefStaP
 stasP :: Parser Token [Statement]
 stasP = many staP
 
@@ -328,8 +338,9 @@ main = do
             (_, tokens) <- run tokensP file_content
             (_, stas) <- run stasP tokens
             return stas
-    runStas stas
-    writeFile out_path $ compileProgram $ compileStas stas
+    print stas
+    -- runStas stas
+    -- writeFile out_path $ compileProgram $ compileStas stas
     return ()
 
 

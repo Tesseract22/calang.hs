@@ -1,4 +1,5 @@
 a := 5.0
 b := 10
+myfn := fn (x, y) x + y
 a*a + 2*a*b + b*b =
-(a + b)*(a + b) = 
+(a + b)*(a + b) =
