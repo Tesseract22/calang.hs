@@ -1,7 +1,7 @@
 CACHE_DIR := cache
 ASM_DIR := asm
 LD_FLAGS := -dynamic-linker /lib64/ld-linux-x86-64.so.2
-NASM_FLAGS := -f elf64
+NASM_FLAGS := -f elf64 -g -F dwarf
 all: main test
 bin_dir:
 	mkdir -p bin

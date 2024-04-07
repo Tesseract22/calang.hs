@@ -246,13 +246,14 @@ compileAddExpr (AddExpr e es) stk = compileList (compileMulExpr e stk) es stk
                     (ValI _, ValF _) -> insts1 ++ [Insti2f] ++ insts2
                     (ValF _, ValI _) -> insts1 ++ insts2 ++ [Insti2f]
                     _ -> insts1 ++ insts2 in
-            case v of
-            ValI _ -> case op of
-                PlusOp -> (insts ++ [InstAdd], v)
-                MinusOp-> (insts ++ [InstSub], v)
-            ValF _ -> case op of
-                PlusOp -> (insts ++ [InstAddf], v)
-                MinusOp-> (insts ++ [InstSubf], v)
+            let acc = case v of
+                    ValI _ -> case op of
+                        PlusOp -> (insts ++ [InstAdd], v)
+                        MinusOp-> (insts ++ [InstSub], v)
+                    ValF _ -> case op of
+                        PlusOp -> (insts ++ [InstAddf], v)
+                        MinusOp-> (insts ++ [InstSubf], v)
+            in compileList acc es stk
 
 compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
     where 
@@ -264,15 +265,16 @@ compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
                     (ValI _, ValF _) -> insts1 ++ [Insti2f] ++ insts2
                     (ValF _, ValI _) -> insts1 ++ insts2 ++ [Insti2f]
                     _ -> insts1 ++ insts2 in
-            case v of
-            ValI _ -> case op of
-                MulOp -> (insts ++ [InstMul], v)
-                DivOp -> (insts ++ [InstDiv], v)
-                ModOp -> (insts ++ [InstMod], v)
-            ValF _ -> case op of
-                MulOp -> (insts ++ [InstMulf], v)
-                DivOp -> (insts ++ [InstDivf], v)
-                ModOp -> (insts ++ [InstModf], v)
+            let acc = case v of
+                    ValI _ -> case op of
+                        MulOp -> (insts ++ [InstMul], v)
+                        DivOp -> (insts ++ [InstDiv], v)
+                        ModOp -> (insts ++ [InstMod], v)
+                    ValF _ -> case op of
+                        MulOp -> (insts ++ [InstMulf], v)
+                        DivOp -> (insts ++ [InstDivf], v)
+                        ModOp -> (insts ++ [InstModf], v) 
+            in compileList acc es stk
 compilePrimaryExpr (ValExpr (ValI i)) stk        =  ([InstPush   i], ValI 0)
 compilePrimaryExpr (ValExpr (ValF f)) stk        =  ([InstPushf  f], ValF 0)
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk

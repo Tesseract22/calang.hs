@@ -29,7 +29,7 @@ data Inst =
     InstCall String |
     InstShow        |
     InstShowf
-
+    deriving (Show)
 compileInst :: Inst -> String
 debugInst :: Inst -> String
 debugInst inst = "\t; " ++ case inst of
@@ -54,9 +54,9 @@ debugInst inst = "\t; " ++ case inst of
     ++ "\n"
 
 compileInst inst = debugInst inst ++ case inst of
-    InstPush    i -> "\tadd rsp, 8\n" ++ "mov qword [rsp], " ++ show i ++ "\n"
-    InstPushf   f -> "\tadd rsp, 8\n" ++ printf "\tmov rax, __float64__(%f)\n" f ++ "\tmov [rsp], rax\n"
-    InstPop     i -> "\tsub rsp, " ++ show (i * 8) ++ "\n"
+    InstPush    i -> printf "\tpush %i\n" i
+    InstPushf   f -> "\tsub rsp, 8\n" ++ printf "\tmov rax, __float64__(%f)\n" f ++ "\tmov [rsp], rax\n"
+    InstPop     i -> "\tadd rsp, " ++ show (i * 8) ++ "\n"
     InstDupBase i -> printf "\tpush qword [rbp - %d]\n" (i * 8)
 
     InstAdd -> "\tpop rax\n" ++ "\tadd   qword [rsp], rax\n"
@@ -65,10 +65,13 @@ compileInst inst = debugInst inst ++ case inst of
     InstDiv -> "\tpop rbx\n" ++ "\tpop rax\n" ++ "\txor rdx, rdx,\n" ++ "\tdiv rbx\n" ++ "\tpush rax\n"
     InstMod -> "\tpop rbx\n" ++ "\tpop rax\n" ++ "\txor rdx, rdx,\n" ++ "\tdiv rbx\n" ++ "\tpush rdx\n"
 
-    InstAddf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\taddsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
-    InstSubf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tsubsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
-    InstMulf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tmulsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
-    InstDivf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tdivsd xmm0, xmm1\n" ++ "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
+    InstAddf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp + 8]\n" ++ "\taddsd xmm0, xmm1\n" ++ "\tmovsd [rsp + 8], xmm0\n" ++ "\tadd rsp, 8\n"
+    InstSubf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp + 8]\n" ++ "\tsubsd xmm0, xmm1\n" ++ "\tmovsd [rsp + 8], xmm0\n" ++ "\tadd rsp, 8\n"
+    InstMulf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp + 8]\n" ++ "\tmulsd xmm0, xmm1\n" ++ "\tmovsd [rsp + 8], xmm0\n" ++ "\tadd rsp, 8\n"
+    InstDivf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp + 8]\n" ++ "\tdivsd xmm0, xmm1\n" ++ "\tmovsd [rsp + 8], xmm0\n" ++ "\tadd rsp, 8\n"
+    -- InstModf -> "\tmovsd xmm0, [rsp]\n" ++ "\tmovsd xmm1, [rsp - 8]\n" ++ "\tcvttss2si rax, xmm0\n" ++ "\tcvtsi2ss xmm2, rax\n"
+    --     ++ "\tmulsd, xmm2, xmm1\n" ++ "\tmovsd xmm0, [rsp]\n" ++ "\tsubsd xmm0, xmm2\n" ++          "\tmovsd [rsp - 8], xmm0\n" ++ "\tsub rsp, 8\n"
+    InstModf -> undefined
 
     Insti2f -> "\tmov rax, [rsp]\n" ++ "\tcvtsi2sd xmm0, rax\n" ++ "\tmovsd [rsp], xmm0\n"
     Instf2i -> undefined
@@ -78,7 +81,7 @@ compileInst inst = debugInst inst ++ case inst of
 
     InstCall    lable -> "\tcall " ++ lable ++ "\n"
     InstShow          -> "\tpop rsi\n" ++ "\tmov rdi, format\n" ++  "\tmov rax, 0\n" ++ compileInst (InstCall "align_printf")
-    InstShowf         -> "\tmovsd xmm0, [rsp]\n" ++ "\tsub rsp, 8\n" ++ "\tmov rdi, formatf\n" ++ "\tmov rax, 1\n" ++ compileInst (InstCall "align_printf")
+    InstShowf         -> "\tmovsd xmm0, [rsp]\n" ++ "\tadd rsp, 8\n" ++ "\tmov rdi, formatf\n" ++ "\tmov rax, 1\n" ++ compileInst (InstCall "align_printf")
 
 type Program = [Inst]
 
@@ -110,6 +113,6 @@ builtinShow = "align_printf:            \n\
 \    .unalign_end:              \n\
 \    ret                \n"
 builtinStart = "_start:\n\tpush rbp\n\tmov rbp, rsp\n"
-builtinExit = "\tmov rdi, 0\n\tcall exit\n"
+builtinExit = "\tpop rbp\n\tmov rdi, 0\n\tcall exit\n"
 compileProgram :: Program -> String 
 compileProgram prog = builtinData ++ builtinText ++ builtinShow ++ builtinStart ++ foldl1 (++) (compileInst <$> (prog ++ [InstPop 1])) ++ builtinExit        
