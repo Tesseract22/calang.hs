@@ -2,8 +2,9 @@ a := 5.0
 b := 10
 myfn := fn (x, y) { 
     a := 9
-    ret x * a + y / 4 
+    t := fn (i, j) i * j
+    ret t(a, x) + y
 }
 myfn(a, b) = 
-a*a + 2*a*b + b*b =
+a*a + 2*a*b + b*b = 
 (a + b)*(a + b) =

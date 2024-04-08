@@ -56,7 +56,7 @@ data MultiplicativeOp = MulOp | DivOp | ModOp
 data AdditiveOp = PlusOp | MinusOp
     deriving (Show, Eq)
 type Iden = String
-data Fn = Fn [Iden] Expr
+data Fn = Fn [Iden] Expr Closure
     deriving (Show, Eq)
 
 -- Token
@@ -180,7 +180,7 @@ mulExprP :: TokenParser MulExpr
 addExprP :: TokenParser AddExpr
 exprP :: TokenParser Expr
 pExprP =
-    (ValExpr . ValFn <$> (Fn <$> (idP FnTok *> tupleLike idenFromTokP) <*> exprP)) <|>
+    (ValExpr . ValFn <$> (Fn <$> (idP FnTok *> tupleLike idenFromTokP) <*> exprP <*> pure Data.Map.empty)) <|>
     FnAppExpr <$> idenFromTokP <*> tupleLike exprP <|>
     BlkExpr <$> (idP Lcurly *> stasP) <*> (idP RetTok *> exprP <* idP Rcurly) <|>
     Parser (\case
@@ -230,11 +230,11 @@ evalPrimaryExpr (ParenExpr e) c   = evalExpr e c
 evalPrimaryExpr (VarExpr name) c = v
     where Just v = Data.Map.lookup name c
 
-evalPrimaryExpr (FnAppExpr name args) c = evalExpr e c'
+evalPrimaryExpr (FnAppExpr name args) c = evalExpr e fc'
     where
         evaledArgs = (`evalExpr` c) <$> args
-        c' = foldl (\acc (arg, argname) -> insert argname arg acc) c (zip evaledArgs argsName)
-        Just (ValFn (Fn argsName e)) = Data.Map.lookup name c
+        fc' = foldl (\acc (arg, argname) -> insert argname arg acc) fc (zip evaledArgs argsName)
+        Just (ValFn (Fn argsName e fc)) = Data.Map.lookup name c
 evalPrimaryExpr (BlkExpr stas e) c = evalExpr e c'
     where (c', _) = runStas' (c, pure ()) stas
 idenFromTokP = Parser $ \case
@@ -256,7 +256,11 @@ runStas' = Prelude.foldl f
     where
         f :: (Closure, IO ()) -> Statement -> (Closure, IO ())
         f (c, io) (VarDefSta name expr)  = (insert name resolved c, io)
-            where resolved = evalExpr expr c
+            where 
+                resolved = case evalExpr expr c of
+                    ValFn (Fn args e _) -> ValFn (Fn args e c)
+                    v -> v
+
         f (c, io) (EvalSta expr)         = (c, io >>= const (print $ evalExpr expr c))
 -- 3.0 * 4
 -- f [(*, 4)]
