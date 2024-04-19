@@ -4,17 +4,16 @@ import Control.Applicative (Alternative, empty, (<|>), many, some)
 import Control.Monad (void)
 import Data.Function ((&))
 import Data.Char (isNumber, isAlpha, isAlphaNum)
-import Data.Map (Map, insert, lookup, empty, size, singleton)
+import Data.Map (Map, insert, lookup, empty, size, singleton, foldlWithKey, toList)
+import Data.List (sortOn)
 import System.Environment (getArgs)
 import GHC.IO.FD (openFile)
 import qualified Control.Applicative as Applicative
 import qualified Control.Applicative as Map
 import Text.Printf
-import Control.Monad.State (State)
 import Data.Fixed (mod')
 
 import Virtual (Inst(..), Program, compileProgram, compileInst)
-import Distribution.Compat.CharParsing (CharParsing(char))
 
 newtype Parser i r = Parser { run :: [i] -> Maybe ([i], r)}
 instance Functor (Parser i) where
@@ -51,25 +50,22 @@ emptiable p = Parser $ \input -> case run p input of
 
 
 -- Operator
-data MultiplicativeOp = MulOp | DivOp | ModOp
-    deriving (Show, Eq)
-data AdditiveOp = PlusOp | MinusOp
+data Op = PlusOp | MinusOp | MulOp | DivOp | ModOp
     deriving (Show, Eq)
 type Iden = String
-data Fn = Fn [Iden] Expr Closure
+data Fn = Fn [Iden] Expr Stack
     deriving (Show, Eq)
 
 -- Token
-data Token = 
-    AddOpTok AdditiveOp | 
-    MulOpTok MultiplicativeOp | 
-    Assign | Equal | 
-    Lcurly | Rcurly | 
-    Lparen | Rparen | 
-    Comma | 
+data Token =
+    OpTok Op |
+    Assign | Equal |
+    Lcurly | Rcurly |
+    Lparen | Rparen |
+    Comma |
     FnTok |
     RetTok |
-    IntTok Int | 
+    IntTok Int |
     FloatTok Float |
     IdenTok Iden
     deriving (Show, Eq)
@@ -116,11 +112,22 @@ instance Fractional Val where
 (%.) (ValI x) y = ValF (fromIntegral x) %. y
 (%.) y (ValI x) = y %. ValF (fromIntegral x)
 -- Expression
-type Expr = AddExpr
-data AddExpr =  AddExpr MulExpr [(AdditiveOp, MulExpr)]
+data Expr =
+    PrimaryExpr PrimaryExpr |
+    BinOpExpr Expr Op Expr
     deriving (Show, Eq)
-data MulExpr = MulExpr PrimaryExpr [(MultiplicativeOp, PrimaryExpr)]
-    deriving (Show, Eq)
+-- instance Show Expr where
+--     show e = "\n" ++ show' 0 e
+--         where
+--             show' iden (PrimaryExpr e)  = show e
+--             show' iden (BinOpExpr e1 op e2)    = 
+--                 replicate iden '\t' ++show' (iden + 1) e1 ++ "\n" ++ 
+--                 replicate iden '\t' ++ show op ++ "\n" ++
+--                 replicate iden '\t' ++ show' (iden + 1) e2 ++ "\n"
+-- -- -- data AddExpr =  AddExpr MulExpr [(AdditiveOp, MulExpr)]
+--     deriving (Show, Eq)
+-- data MulExpr = MulExpr PrimaryExpr [(MultiplicativeOp, PrimaryExpr)]
+--     deriving (Show, Eq)
 data PrimaryExpr = FnAppExpr Iden [Expr] | BlkExpr [Statement] Expr | ValExpr Val | VarExpr Iden | ParenExpr Expr
     deriving (Show, Eq)
 
@@ -146,11 +153,11 @@ commentP = charP
 tokenP =
     ws *>
     (
-        AddOpTok PlusOp <$ charP '+' <|>
-        AddOpTok MinusOp <$ charP '-' <|>
-        MulOpTok MulOp <$ charP '*' <|>
-        MulOpTok DivOp <$ charP '/' <|>
-        MulOpTok ModOp <$ charP '%' <|>
+        OpTok PlusOp <$ charP '+' <|>
+        OpTok MinusOp <$ charP '-' <|>
+        OpTok MulOp <$ charP '*' <|>
+        OpTok DivOp <$ charP '/' <|>
+        OpTok ModOp <$ charP '%' <|>
         Assign <$ stringP ":=" <|>
         Equal <$ charP '=' <|>
         Lparen <$ charP '(' <|>
@@ -176,8 +183,8 @@ idP t = Parser $ \case
     x:xs -> if t == x then Just (xs, t) else Nothing
     _ -> Nothing
 pExprP :: TokenParser PrimaryExpr
-mulExprP :: TokenParser MulExpr
-addExprP :: TokenParser AddExpr
+mulExprP :: TokenParser Expr
+addExprP :: TokenParser Expr
 exprP :: TokenParser Expr
 pExprP =
     (ValExpr . ValFn <$> (Fn <$> (idP FnTok *> tupleLike idenFromTokP) <*> exprP <*> pure Data.Map.empty)) <|>
@@ -189,52 +196,48 @@ pExprP =
     (FloatTok f):xs -> Just (xs, ValExpr (ValF f))
     _ -> Nothing) <|>
     ParenExpr <$> (idP Lparen *> exprP <* idP Rparen)
+opP :: Op -> TokenParser Op
+opP o = Parser $ \case
+    (OpTok o'):xs -> if o == o' then Just (xs, o) else Nothing
+    _ -> Nothing
+list2tree :: Expr -> [(Op, Expr)] -> Expr
+list2tree= foldl f
+    where
+        f e1 (op, e2)= BinOpExpr e1 op e2
+
+mulExprP = (list2tree . PrimaryExpr <$> pExprP) <*> mulExprP'
+    where
+        mulExprP'= many $ (,) <$> mulOpP <*> (PrimaryExpr <$> pExprP)
+        mulOpP = opP MulOp <|> opP DivOp <|> opP ModOp
 
 
-mulExprP = MulExpr <$> pExprP <*> many rest
+addExprP = list2tree <$> mulExprP <*> addExprP'
     where
-        rest :: TokenParser (MultiplicativeOp, PrimaryExpr)
-        op = Parser $ \case
-            (MulOpTok i):xs -> Just (xs, i)
-            _ -> Nothing
-        rest = (,) <$> op <*> pExprP
-addExprP = AddExpr <$> mulExprP <*> many rest
-    where
-        rest :: TokenParser (AdditiveOp, MulExpr)
-        op = Parser $ \case
-            (AddOpTok i):xs -> Just (xs, i)
-            _ -> Nothing
-        rest = (,) <$> op <*> mulExprP
+        addExprP'= many $ (,) <$> addOpP <*> mulExprP
+        addOpP = opP PlusOp <|> opP MinusOp
+-- add = mul | add op mul
 exprP = addExprP
-type Closure = Map Iden Val
-evalExpr :: Expr -> Closure-> Val
-evalAddExpr :: AddExpr -> Closure -> Val
-evalMulExpr :: MulExpr -> Closure-> Val
-evalPrimaryExpr :: PrimaryExpr -> Closure -> Val
-
-evalExpr = evalAddExpr
-evalAddExpr (AddExpr e es) c = evalList (evalMulExpr e c) es c
-    where
-        evalList acc [] c = acc
-        evalList acc ((PlusOp,  e):es) c    = evalList (acc +   evalMulExpr e c) es c
-        evalList acc ((MinusOp, e):es) c    = evalList (acc -   evalMulExpr e c) es c
-
-evalMulExpr (MulExpr e es) c = evalList (evalPrimaryExpr e c) es c
-    where
-        evalList acc [] c = acc
-        evalList acc ((MulOp, e):es) c      = evalList (acc *   evalPrimaryExpr e c) es c
-        evalList acc ((DivOp, e):es) c      = evalList (acc /   evalPrimaryExpr e c) es c
-        evalList acc ((ModOp, e):es) c      = evalList (acc %.  evalPrimaryExpr e c) es c
+type Stack = Map Iden (Int, Val)
+evalExpr :: Expr -> Stack-> Val
+evalPrimaryExpr :: PrimaryExpr -> Stack -> Val
+evalOp op = case op of
+    PlusOp  -> (+)
+    MinusOp -> (-)
+    MulOp   -> (*)
+    DivOp   -> (/)
+    ModOp   -> (%.)
+evalExpr (PrimaryExpr pe) stk = evalPrimaryExpr pe stk
+evalExpr (BinOpExpr e1 op e2) stk = evalOp op (evalExpr e1 stk) (evalExpr e2 stk)
 evalPrimaryExpr (ValExpr v) c     = v
 evalPrimaryExpr (ParenExpr e) c   = evalExpr e c
 evalPrimaryExpr (VarExpr name) c = v
-    where Just v = Data.Map.lookup name c
+    where Just (_, v) = Data.Map.lookup name c
 
 evalPrimaryExpr (FnAppExpr name args) c = evalExpr e fc'
     where
         evaledArgs = (`evalExpr` c) <$> args
-        fc' = foldl (\acc (arg, argname) -> insert argname arg acc) fc (zip evaledArgs argsName)
-        Just (ValFn (Fn argsName e fc)) = Data.Map.lookup name c
+        fc' = foldl (\acc (arg, argname) -> insert argname (0, arg) acc) fc (zip evaledArgs argsName)
+        Just (_, ValFn (Fn argsName e fc)) = Data.Map.lookup name c
 evalPrimaryExpr (BlkExpr stas e) c = evalExpr e c'
     where (c', _) = runStas' (c, pure ()) stas
 idenFromTokP = Parser $ \case
@@ -251,12 +254,12 @@ stasP = many staP
 
 runStas :: [Statement] -> IO ()
 runStas stas = snd $ runStas' (Data.Map.empty, pure ()) stas
-runStas' :: (Closure, IO ()) -> [Statement] -> (Closure, IO ())
+runStas' :: (Stack, IO ()) -> [Statement] -> (Stack, IO ())
 runStas' = Prelude.foldl f
     where
-        f :: (Closure, IO ()) -> Statement -> (Closure, IO ())
-        f (c, io) (VarDefSta name expr)  = (insert name resolved c, io)
-            where 
+        f :: (Stack, IO ()) -> Statement -> (Stack, IO ())
+        f (c, io) (VarDefSta name expr)  = (insert name (0, resolved) c, io)
+            where
                 resolved = case evalExpr expr c of
                     ValFn (Fn args e _) -> ValFn (Fn args e c)
                     v -> v
@@ -265,63 +268,42 @@ runStas' = Prelude.foldl f
 -- 3.0 * 4
 -- f [(*, 4)]
 
-type Stack = Map String (Int, Val)
+
 
 -- resolveExpr         :: (Expr, Val) -> S
 
 compileExpr         :: Expr -> Stack -> ([Inst], Val)
-compileAddExpr      :: AddExpr -> Stack -> ([Inst], Val)
-compileMulExpr      :: MulExpr -> Stack -> ([Inst], Val)
-compilePrimaryExpr  :: PrimaryExpr -> Stack -> ([Inst], Val)
-
-
-compileExpr = compileAddExpr
-compileAddExpr (AddExpr e es) stk = compileList (compileMulExpr e stk) es stk
+compileExpr (PrimaryExpr pe) stk = compilePrimaryExpr pe stk
+compileExpr (BinOpExpr e1 op e2) stk = (i ++ [iop], v)
     where
-        compileList acc [] stk = acc
-        compileList (insts1, v1) ((op, e):es) stk =
-            let (insts2, v2) = compileMulExpr e stk in
-            let v = v1 + v2 in
-            let insts = case (v1, v2) of
-                    (ValI _, ValF _) -> insts1 ++ [Insti2f] ++ insts2
-                    (ValF _, ValI _) -> insts1 ++ insts2 ++ [Insti2f]
-                    _ -> insts1 ++ insts2 in
-            let acc = case v of
-                    ValI _ -> case op of
-                        PlusOp -> (insts ++ [InstAdd], v)
-                        MinusOp-> (insts ++ [InstSub], v)
-                    ValF _ -> case op of
-                        PlusOp -> (insts ++ [InstAddf], v)
-                        MinusOp-> (insts ++ [InstSubf], v)
-            in compileList acc es stk
-
-compileMulExpr (MulExpr e es) c = compileList (compilePrimaryExpr e c) es c
-    where
-        compileList acc [] stk = acc
-        compileList (insts1, v1) ((op, e):es) stk =
-            let (insts2, v2) = compilePrimaryExpr e stk in
-            let v = v1 + v2 in
-            let insts = case (v1, v2) of
-                    (ValI _, ValF _) -> insts1 ++ [Insti2f] ++ insts2
-                    (ValF _, ValI _) -> insts1 ++ insts2 ++ [Insti2f]
-                    _ -> insts1 ++ insts2 in
-            let acc = case v of
-                    ValI _ -> case op of
-                        MulOp -> (insts ++ [InstMul], v)
-                        DivOp -> (insts ++ [InstDiv], v)
-                        ModOp -> (insts ++ [InstMod], v)
-                    ValF _ -> case op of
-                        MulOp -> (insts ++ [InstMulf], v)
-                        DivOp -> (insts ++ [InstDivf], v)
-                        ModOp -> (insts ++ [InstModf], v)
-            in compileList acc es stk
+        (i1, v1) = compileExpr e1 stk
+        (i2, v2) = compileExpr e2 stk
+        v = v1 + v2
+        i = case (v1, v2) of
+            (ValI _, ValI _)    -> i1 ++ i2
+            (ValF _, ValF _)    -> i1 ++ i2
+            (ValF _, _)         -> i1 ++ i2 ++ [Insti2f]
+            (_, ValF _)         -> i1 ++ [Insti2f] ++ i2
+        iop = case v of
+            ValI _ -> case op of
+                PlusOp  -> InstAdd
+                MinusOp -> InstSub
+                MulOp   -> InstMul
+                DivOp   -> InstDiv
+                ModOp   -> InstMod
+            ValF _ -> case op of
+                PlusOp  -> InstAddf
+                MinusOp -> InstSubf
+                MulOp   -> InstMulf
+                DivOp   -> InstDivf
+                ModOp   -> InstModf
+compilePrimaryExpr :: PrimaryExpr -> Stack -> ([Inst], Val)
 compilePrimaryExpr (ValExpr (ValI i)) stk        =  ([InstPush   i], ValI 0)
 compilePrimaryExpr (ValExpr (ValF f)) stk        =  ([InstPushf  f], ValF 0)
 compilePrimaryExpr (ParenExpr e) stk      = compileExpr e stk
 compilePrimaryExpr (VarExpr name) stk     = ([InstDupBase off], v) -- TODO
     where
         Just (off, v) = Data.Map.lookup name stk
-
 compileStas :: [Statement] -> [Inst]
 compileStas stas = evals ++ [InstPop (size stk)]
     where
@@ -336,7 +318,9 @@ compileStas stas = evals ++ [InstPop (size stk)]
         compileSta :: Statement -> Stack -> ([Inst], Stack)
         compileSta (VarDefSta name e) stk = (insts, insert name (count, v) stk)
             where
-                count = size stk + 1
+                count = case v of
+                    ValFn _ -> 2 * size stk
+                    _       -> 1 + size stk
                 (insts, v) = compileExpr e stk
         compileSta (EvalSta e) stk = (insts ++ [instShow], stk)
             where
@@ -368,9 +352,9 @@ main = do
             (_, tokens) <- run tokensP file_content
             (_, stas) <- run stasP tokens
             return stas
-    -- print stas
+    print stas
     runStas stas
-    -- writeFile out_path $ compileProgram $ compileStas stas
+    writeFile out_path $ compileProgram $ compileStas stas
     return ()
 
 
