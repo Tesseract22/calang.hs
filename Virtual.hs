@@ -7,6 +7,8 @@ data Inst =
     InstPushf   Float   |
     InstDupBase Int     |
     InstPop     Int     | 
+    InstReserve Int     |
+    InstAssign  Int     |
 
     InstAdd | 
     InstSub | 
@@ -57,6 +59,8 @@ compileInst inst = debugInst inst ++ case inst of
     InstPush    i -> printf "\tpush %i\n" i
     InstPushf   f -> "\tsub rsp, 8\n" ++ printf "\tmov rax, __float64__(%f)\n" f ++ "\tmov [rsp], rax\n"
     InstPop     i -> "\tadd rsp, " ++ show (i * 8) ++ "\n"
+    InstReserve i -> "\tsub rsp, " ++ show (i * 8) ++ "\n"
+    InstAssign  i -> "\tpop rax\n" ++ printf "\tmov [rbp - %d], rax\n" (i * 8)
     InstDupBase i -> printf "\tpush qword [rbp - %d]\n" (i * 8)
 
     InstAdd -> "\tpop rax\n" ++ "\tadd   qword [rsp], rax\n"
