@@ -7,7 +7,7 @@
 ### Example 
 This is the example from `showcase.cal`:
 
-```
+```rust
 a := 10
 b := 5
 
@@ -21,6 +21,13 @@ g := fn (a) a*a
 
 f(10, 5) = 
 g(a) + 2*a*b + g(b) =
+```
+
+yields
+
+```rust
+= 225
+= 225
 ```
 
 ### Usage
