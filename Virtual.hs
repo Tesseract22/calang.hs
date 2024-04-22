@@ -113,8 +113,8 @@ freshIn :: Program -> String -> String
 freshIn prog hint 
     | member hint prog =  
         let freshIn' prog ct 
-                | member ( "anony" ++ show ct) prog = freshIn' prog (ct + 1)
-                | otherwise = "annoy" ++ show ct in 
+                | member ( hint ++ show ct) prog = freshIn' prog (ct + 1)
+                | otherwise = hint ++ show ct in 
         freshIn' prog 0
 
     | otherwise = hint

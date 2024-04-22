@@ -27,27 +27,6 @@ _start:
 	call main
 	mov rdi, rax
 	call exit
-annoy0:
-	push rbp
-	mov rbp, rsp
-	; 
-	sub rsp, 0
-	; dup base
-	push qword [rbp + 16]
-	; dup base
-	push qword [rbp + 16]
-	; mul
-	pop rax
-	imul  qword rax, [rsp]
-	mov [rsp], rax
-	; 
-	pop rax
-	; 
-	add rsp, 0
-	; ret
-	; load stk top
-	pop rbp
-	ret
 f:
 	push rbp
 	mov rbp, rsp
@@ -108,6 +87,27 @@ g:
 	; load stk top
 	pop rbp
 	ret
+g0:
+	push rbp
+	mov rbp, rsp
+	; 
+	sub rsp, 0
+	; dup base
+	push qword [rbp + 16]
+	; dup base
+	push qword [rbp + 16]
+	; mul
+	pop rax
+	imul  qword rax, [rsp]
+	mov [rsp], rax
+	; 
+	pop rax
+	; 
+	add rsp, 0
+	; ret
+	; load stk top
+	pop rbp
+	ret
 main:
 	push rbp
 	mov rbp, rsp
@@ -149,8 +149,8 @@ main:
 	call align_printf
 	; dup base
 	push qword [rbp - 8]
-	; call annoy0
-	call annoy0
+	; call g0
+	call g0
 	; 
 	add rsp, 8
 	push rax
@@ -173,8 +173,8 @@ main:
 	add   qword [rsp], rax
 	; dup base
 	push qword [rbp - 16]
-	; call annoy0
-	call annoy0
+	; call g0
+	call g0
 	; 
 	add rsp, 8
 	push rax
