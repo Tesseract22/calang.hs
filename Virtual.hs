@@ -1,5 +1,5 @@
 
-module Virtual (Inst(..), Program, compileInst, compileProgram, freshIn) where
+module Virtual (Inst(..), Program, compileInst, compileProgram) where
 
 import Text.Printf (printf)
 import Data.Map (Map, insert, lookup, empty, size, singleton, foldlWithKey, toList, member)
@@ -7,6 +7,7 @@ import Data.Map (Map, insert, lookup, empty, size, singleton, foldlWithKey, toLi
 data Inst =
     InstPush    Int     |
     InstPushf   Float   |
+    InstPushfn  String  |
     InstDupBase Int     |
     InstPop     Int     |
     InstReserve Int     |
@@ -71,6 +72,7 @@ debugInst inst = "\t; " ++ case inst of
 compileInst inst = debugInst inst ++ case inst of
     InstPush    i -> printf "\tpush %i\n" i
     InstPushf   f -> "\tsub rsp, 8\n" ++ printf "\tmov rax, __float64__(%f)\n" f ++ "\tmov [rsp], rax\n"
+    InstPushfn  s -> printf "\tpush %s\n" s
     InstPop     i -> "\tadd rsp, " ++ show (i * 8) ++ "\n"
     InstReserve i -> "\tsub rsp, " ++ show (i * 8) ++ "\n"
     InstAssign  i -> "\tpop rax\n" ++ printf "\tmov [rbp - %d], rax\n" (i * 8)
@@ -109,15 +111,7 @@ compileInst inst = debugInst inst ++ case inst of
 type Program = Map String [Inst]
 
 
-freshIn :: Program -> String -> String
-freshIn prog hint 
-    | member hint prog =  
-        let freshIn' prog ct 
-                | member ( hint ++ show ct) prog = freshIn' prog (ct + 1)
-                | otherwise = hint ++ show ct in 
-        freshIn' prog 0
 
-    | otherwise = hint
 
 
 

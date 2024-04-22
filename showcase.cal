@@ -2,7 +2,10 @@ a := 10
 b := 5
 
 f := fn (a, b) {
-    g := fn (a, b) a + b
+    g := fn (a, b) {
+        a + b = 
+        ret a + b
+    }
     ret g(a,b)*g(a,b)
 }
 

@@ -31,38 +31,13 @@ f:
 	push rbp
 	mov rbp, rsp
 	; 
-	sub rsp, 8
+	sub rsp, 0
 	; 
-	push 5
-	; 
-	pop rax
-	mov [rbp - 8], rax
-	; dup base
-	push qword [rbp + 24]
-	; dup base
-	push qword [rbp + 16]
-	; call g
-	call g
-	; 
-	add rsp, 16
-	push rax
-	; dup base
-	push qword [rbp + 24]
-	; dup base
-	push qword [rbp + 16]
-	; call g
-	call g
-	; 
-	add rsp, 16
-	push rax
-	; mul
-	pop rax
-	imul  qword rax, [rsp]
-	mov [rsp], rax
+	push 1024
 	; 
 	pop rax
 	; 
-	add rsp, 8
+	add rsp, 0
 	; ret
 	; load stk top
 	pop rbp
@@ -76,9 +51,9 @@ g:
 	push qword [rbp + 24]
 	; dup base
 	push qword [rbp + 16]
-	; add
+	; sub
 	pop rax
-	add   qword [rsp], rax
+	sub   qword [rsp], rax
 	; 
 	pop rax
 	; 
@@ -87,19 +62,30 @@ g:
 	; load stk top
 	pop rbp
 	ret
-g0:
+h:
 	push rbp
 	mov rbp, rsp
 	; 
 	sub rsp, 0
 	; dup base
-	push qword [rbp + 16]
+	push qword [rbp + 24]
 	; dup base
 	push qword [rbp + 16]
-	; mul
+	; add
 	pop rax
-	imul  qword rax, [rsp]
-	mov [rsp], rax
+	add   qword [rsp], rax
+	; show
+	pop rsi
+	mov rdi, format
+	mov rax, 0
+	call align_printf
+	; dup base
+	push qword [rbp + 24]
+	; dup base
+	push qword [rbp + 16]
+	; add
+	pop rax
+	add   qword [rsp], rax
 	; 
 	pop rax
 	; 
@@ -112,7 +98,7 @@ main:
 	push rbp
 	mov rbp, rsp
 	; 
-	sub rsp, 32
+	sub rsp, 40
 	; 
 	push 10
 	; 
@@ -124,21 +110,24 @@ main:
 	pop rax
 	mov [rbp - 16], rax
 	; 
-	push 5
+	push 1024
 	; 
 	pop rax
 	mov [rbp - 24], rax
+	; call f
+	call f
 	; 
-	push 5
+	add rsp, 0
+	push rax
 	; 
 	pop rax
 	mov [rbp - 32], rax
-	; 
-	push 10
-	; 
-	push 5
-	; call f
-	call f
+	; dup base
+	push qword [rbp - 8]
+	; dup base
+	push qword [rbp - 16]
+	; call h
+	call h
 	; 
 	add rsp, 16
 	push rax
@@ -147,40 +136,20 @@ main:
 	mov rdi, format
 	mov rax, 0
 	call align_printf
+	; 
+	push 1024
+	; 
+	pop rax
+	mov [rbp - 40], rax
 	; dup base
 	push qword [rbp - 8]
-	; call g0
-	call g0
-	; 
-	add rsp, 8
-	push rax
-	; 
-	push 2
-	; dup base
-	push qword [rbp - 8]
-	; mul
-	pop rax
-	imul  qword rax, [rsp]
-	mov [rsp], rax
 	; dup base
 	push qword [rbp - 16]
-	; mul
-	pop rax
-	imul  qword rax, [rsp]
-	mov [rsp], rax
-	; add
-	pop rax
-	add   qword [rsp], rax
-	; dup base
-	push qword [rbp - 16]
-	; call g0
-	call g0
+	; call g
+	call g
 	; 
-	add rsp, 8
+	add rsp, 16
 	push rax
-	; add
-	pop rax
-	add   qword [rsp], rax
 	; show
 	pop rsi
 	mov rdi, format
@@ -191,7 +160,7 @@ main:
 	; 
 	pop rax
 	; 
-	add rsp, 32
+	add rsp, 40
 	; ret
 	; load stk top
 	pop rbp
