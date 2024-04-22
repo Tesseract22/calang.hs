@@ -1,0 +1,13 @@
+a := 10
+b := 5
+
+f := fn (a, b) {
+    g := fn (a, b) a + b
+    ret g(a,b)*g(a,b)
+}
+
+
+g := fn (a) a*a
+
+f(10, 5) = 
+g(a) + 2*a*b + g(b) =
