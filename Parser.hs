@@ -1,19 +1,17 @@
 {-# LANGUAGE LambdaCase #-}
-import Distribution.Fields (ParseResult)
 import Control.Applicative (Alternative, empty, (<|>), many, some)
 import Control.Monad (void)
 import Data.Function ((&))
 import Data.Char (isNumber, isAlpha, isAlphaNum)
-import Data.Map (Map, insert, lookup, empty, size, singleton, foldlWithKey, toList)
-import Data.List (sortOn)
+import Data.Map (Map, insert, lookup, empty, size, singleton, foldlWithKey, toList, fromList, union, (!))
 import System.Environment (getArgs)
 import GHC.IO.FD (openFile)
 import qualified Control.Applicative as Applicative
-import qualified Control.Applicative as Map
-import Text.Printf
 import Data.Fixed (mod')
 
-import Virtual (Inst(..), Program, compileProgram, compileInst)
+import Virtual (Inst(..), Program, compileProgram, compileInst, freshIn)
+import Text.XHtml (body)
+import Data.Sequence (mapWithIndex)
 newtype Parser i r = Parser { run :: [i] -> Maybe ([i], r)}
 instance Functor (Parser i) where
     fmap :: (r1 -> r2) -> Parser i r1 -> Parser i r2
@@ -283,17 +281,17 @@ data Stack = Stack {
 
 
 putSize :: Stack -> Iden -> Int -> Stack
-putSize (Stack map offset) iden size = Stack (insert iden offset map) (offset + size)
+putSize (Stack map offset) iden size = Stack (insert iden (offset + size) map) (offset + size)
 put :: Stack -> Iden -> Stack
 put stk iden = putSize stk iden 1
 get :: Stack -> Iden -> Maybe Int
 get (Stack map _) iden = Data.Map.lookup iden map
-compileExpr :: Expr -> (Closure, Stack) -> ([Inst], Val)
-compileExpr (PrimaryExpr pe) (c, stk) = compilePrimaryExpr pe (c, stk) 
-compileExpr (BinOpExpr e1 op e2) (c, stk)  = (i ++ [iop], v)
+compileExpr :: Expr -> (Closure, Stack, Program) -> ([Inst], Stack, Program, Val)
+compileExpr (PrimaryExpr pe) (c, stk, prog) = compilePrimaryExpr pe (c, stk, prog)
+compileExpr (BinOpExpr e1 op e2) (c, stk, prog)  = (i ++ [iop], stk'', p1 `union` p2, v)
     where
-        (i1, v1) = compileExpr e1 (c, stk) 
-        (i2, v2) = compileExpr e2 (c, stk) 
+        (i1, stk', p1, v1) = compileExpr e1 (c, stk, prog)
+        (i2, stk'', p2, v2) = compileExpr e2 (c, stk', prog)
         v = v1 + v2
         i = case (v1, v2) of
             (ValI _, ValI _)    -> i1 ++ i2
@@ -313,35 +311,71 @@ compileExpr (BinOpExpr e1 op e2) (c, stk)  = (i ++ [iop], v)
                 MulOp   -> InstMulf
                 DivOp   -> InstDivf
                 ModOp   -> InstModf
-compilePrimaryExpr :: PrimaryExpr -> (Closure, Stack) -> ([Inst], Val)
-compilePrimaryExpr (ValExpr (ValI i)) (c, stk)        =  ([InstPush   i], ValI 0)
-compilePrimaryExpr (ValExpr (ValF f)) (c, stk)        =  ([InstPushf  f], ValF 0)
-compilePrimaryExpr (ParenExpr e) (c, stk)       = compileExpr e (c, stk) 
-compilePrimaryExpr (VarExpr name) (c, stk)     = ([InstDupBase off], v) -- TODO
+compilePrimaryExpr :: PrimaryExpr -> (Closure, Stack, Program) -> ([Inst], Stack, Program, Val)
+compilePrimaryExpr (ValExpr (ValI i)) (c, stk, prog)       =  ([InstPush   i], stk, prog, ValI 0)
+compilePrimaryExpr (ValExpr (ValF f)) (c, stk, prog)       =  ([InstPushf  f], stk, prog, ValF 0)
+compilePrimaryExpr (ValExpr (ValFn (Fn args body fc))) (c, stk, prog) = ([InstPush 5], stk, prog, ValFn (Fn args body c))
+
+compilePrimaryExpr (BlkExpr stas ret) (c, stk, prog ) = (inst ++ einst,  stk'', prog'', v)
+    where
+        f :: ([Inst], (Closure, Stack, Program)) -> Statement -> ([Inst], (Closure, Stack, Program))
+        f  (inst1, cstk) sta = (inst1 ++ inst2, cstk2)
+            where (inst2, cstk2) = compileSta sta cstk
+        (inst, (c', Stack map offset, prog')) = foldl f ([], (c, stk, prog)) stas
+        (einst, stk'', prog'', v) = compileExpr ret (c', Stack map offset, prog')
+
+
+compilePrimaryExpr (FnAppExpr name args) (c, stk, prog) = (inst ++ [InstCall lable (length argsNames)], stk', fprog', v)
+    where
+        -- evaluate the argument
+        (inst, stk', prog', vs) = foldl
+            (\(inst, Stack map offset, prog, vs) argExpr  ->
+                let (inst', Stack _ offset', prog', v') = compileExpr argExpr (c, stk, prog) in (inst ++ inst', Stack map offset', prog `union` prog', vs ++ [v']))
+            ([], stk, prog, []) args
+        Just (ValFn (Fn argsNames body fc)) = Data.Map.lookup name c
+        fc'  = foldl (\acc (argName, arg) -> insert argName arg acc) fc (zip argsNames vs)
+        (li,_) = foldr (\x (li, ct) -> ((x,ct) : li, ct - 1)) ([], -2) argsNames
+        (Stack fmap foffset) = Stack (fromList li) 0
+        -- compile the function
+        -- prog' = insert "f" evaledInst prog
+        lable = freshIn prog' name 
+        (bodyInst, Stack fmap' foffset', fprog, v) = compileExpr body (fc', Stack fmap foffset, prog')
+        fprog' = insert lable (InstReserve foffset': bodyInst ++ [InstSaveRet, InstPop foffset', InstRet]) fprog
+
+compilePrimaryExpr (ParenExpr e) (c, stk, prog)       = compileExpr e (c, stk, prog)
+compilePrimaryExpr (VarExpr name) (c, stk, prog)   = ([InstDupBase off], stk, prog, v) -- TODO
     where
         Just off = get stk name
         Just v = Data.Map.lookup name c
-compileStas :: [Statement] -> [Inst]
-compileStas stas = InstReserve offset : inst ++ [InstPop offset]
+compileStas :: [Statement] -> (Closure, Stack, Program) -> ([Inst], (Closure, Stack, Program))
+compileStas stas (c, stk, prog) = (inst, (c', Stack map offset, prog'))
     where
-        (inst, (c, Stack map offset)) = foldl f ([], (Data.Map.empty, Stack Data.Map.empty 0)) stas
-        f :: ([Inst], (Closure, Stack) ) -> Statement -> ([Inst], (Closure, Stack) )
+
+        (inst, (c', Stack map offset, prog')) = foldl f ([], (c, stk, prog)) stas
+        f :: ([Inst], (Closure, Stack, Program) ) -> Statement -> ([Inst], (Closure, Stack, Program) )
         f  (inst1, cstk) sta = (inst1 ++ inst2, cstk2)
             where (inst2, cstk2) = compileSta sta cstk
-        compileSta :: Statement -> (Closure, Stack)  -> ([Inst], (Closure, Stack) )
-        compileSta (VarDefSta name e) (c, Stack map offset) = (insts ++ [InstAssign offset], (c', stk'))
+compileSta :: Statement ->  (Closure, Stack, Program)  -> ([Inst], (Closure, Stack, Program))
+compileSta (VarDefSta name e) (c, stk, prog) = (insts ++ [InstAssign offset], (c', Stack map offset, prog'))
 
-            where
-                (insts, v) = compileExpr e (c, Stack map offset) 
-                c' = insert name v c
-                stk' = put (Stack map offset) name
-        compileSta (EvalSta e) cstk = (insts ++ [instShow], cstk)
-            where
-                (insts, v) = compileExpr e cstk
-                instShow = case v of
-                    ValI _ -> InstShow
-                    ValF _ -> InstShowf
+    where
+        (insts, stk', prog', v) = compileExpr e (c, stk, prog)
+        c' = insert name v c
+        Stack map offset = put stk' name
+compileSta (EvalSta e) (c, stk, prog) = (insts ++ [instShow], (c, stk', prog'))
+    where
+        (insts, stk', prog', v) = compileExpr e (c, stk, prog)
+        instShow = case v of
+            ValI _ -> InstShow
+            ValF _ -> InstShowf
+compileMain :: [Statement] -> Program
+compileMain stas = prog
+    where
+        mainBlk = ValI 0 & ValExpr & PrimaryExpr & BlkExpr stas & PrimaryExpr
+        mainFn = Fn [] mainBlk Data.Map.empty & ValFn
 
+        mainApp = FnAppExpr "main" []
+        (inst, _, prog, _) = compilePrimaryExpr mainApp (singleton "main" mainFn, Stack Data.Map.empty 0, Data.Map.empty)
 test :: IO ()
 test = do
     print expr_res
@@ -367,7 +401,7 @@ main = do
             return stas
     print stas
     runStas stas
-    writeFile out_path $ compileProgram $ compileStas stas
+    writeFile out_path $ compileProgram $ compileMain stas
     return ()
 
 
